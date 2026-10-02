@@ -1,0 +1,27 @@
+# Entorno virtual
+venv/
+env/
+ENV/
+
+# Archivos de configuración sensible
+.env
+
+# Caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# VS Code
+.vscode/
+
+# Archivos del sistema operativo
+.DS_Store          # macOS
+Thumbs.db          # Windows
+desktop.ini        # Windows
+
+# Cachés de herramientas de desarrollo (por si agregan tests/cobertura — Fase 5)
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.log

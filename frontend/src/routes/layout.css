@@ -1,0 +1,56 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+@plugin '@tailwindcss/forms';
+
+@theme {
+	--font-sans:
+		'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+	/* Primary (naranja) */
+	--color-primary: #a33900;
+	--color-primary-container: #cc4900;
+	--color-on-primary: #ffffff;
+	--color-on-primary-container: #fffbff;
+	--color-primary-fixed: #ffdbce;
+	--color-primary-fixed-dim: #ffb599;
+	--color-on-primary-fixed: #370e00;
+	--color-on-primary-fixed-variant: #7f2b00;
+
+	/* Surface */
+	--color-surface: #f9f9ff;
+	--color-surface-container-lowest: #ffffff;
+	--color-surface-container-low: #f1f3ff;
+	--color-surface-container: #e9edff;
+	--color-surface-container-high: #e1e8fd;
+	--color-surface-container-highest: #dce2f7;
+	--color-on-surface: #141b2b;
+	--color-on-surface-variant: #5a4138;
+
+	/* Outline */
+	--color-outline: #8e7166;
+	--color-outline-variant: #e2bfb2;
+
+	/* Tertiary (verde) */
+	--color-tertiary: #006947;
+	--color-tertiary-container: #00855b;
+	--color-tertiary-fixed: #6ffbbe;
+	--color-tertiary-fixed-dim: #4edea3;
+	--color-on-tertiary: #ffffff;
+
+	/* Secondary (dorado) */
+	--color-secondary: #755935;
+	--color-secondary-container: #fdd6a9;
+	--color-secondary-fixed: #ffddb7;
+	--color-on-secondary: #ffffff;
+
+	/* Error */
+	--color-error: #ba1a1a;
+	--color-error-container: #ffdad6;
+	--color-on-error: #ffffff;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+}

@@ -1,0 +1,1 @@
+<!-- Redirige automáticamente desde +page.server.js -->
