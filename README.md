@@ -68,7 +68,9 @@ Queda en `http://localhost:5173`. Entra con cualquier usuario de prueba, por eje
 
 - **Base de datos**: completa, probada de punta a punta contra PostgreSQL 16 real.
 - **Backend**: completo (todos los endpoints, WebSocket, tarea de expiración de ofertas, simulador de repartidores), verificado contra el contrato de la base de datos.
-- **Frontend**: todas las pantallas de los 5 actores están construidas; la conexión a la API real (quitar los datos mock) está en proceso.
+- **Frontend**: todas las pantallas de los 5 actores están construidas y conectadas a la API real (sin datos mock).
+
+El pago en el checkout es **simulado**: solo se valida y se guardan los últimos 4 dígitos de la tarjeta (`CHECK (ultimos4 ~ '^[0-9]{4}$')` en la base de datos). No hay integración con ninguna pasarela de pago real.
 
 ## Documentación
 
