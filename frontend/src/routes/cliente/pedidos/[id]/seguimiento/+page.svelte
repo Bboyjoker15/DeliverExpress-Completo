@@ -9,12 +9,22 @@
 	import LineaEstados from '$lib/componentes/LineaEstados.svelte';
 	import MapaCoordinador from '$lib/componentes/MapaCoordinador.svelte';
 
-	const idPedido = Number(page.params.id);
-	const pedidoStore = obtenerPedidoPorId(idPedido);
+	// $derived (no const): SvelteKit reutiliza esta misma instancia del
+	// componente al navegar entre dos pedidos distintos, solo cambia
+	// page.params.
+	let idPedido = $derived(Number(page.params.id));
+	let pedidoStore = $derived(obtenerPedidoPorId(idPedido));
 	let pedido = $derived($pedidoStore);
 
 	// Posición del repartidor en vivo (se mueve por WS "ubicacion")
 	let repartidorPos = $state(null);
+
+	// Al cambiar de pedido hay que olvidar la posicion del repartidor anterior,
+	// si no se queda pegada a la del pedido viejo.
+	$effect(() => {
+		idPedido;
+		repartidorPos = null;
+	});
 
 	// Cuando llegue el pedido, inicializamos la posición del repartidor
 	$effect(() => {

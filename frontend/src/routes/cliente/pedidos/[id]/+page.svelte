@@ -11,8 +11,12 @@
 
 	const IMAGEN_DEFECTO = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80';
 
-	const idPedido = Number(page.params.id);
-	const pedidoStore = obtenerPedidoPorId(idPedido);
+	// $derived (no const): SvelteKit reutiliza esta misma instancia del
+	// componente al navegar entre dos pedidos distintos, solo cambia
+	// page.params. Con const, ver el pedido B despues del A seguia mostrando
+	// los datos/estado del A.
+	let idPedido = $derived(Number(page.params.id));
+	let pedidoStore = $derived(obtenerPedidoPorId(idPedido));
 	let pedido = $derived($pedidoStore);
 
 	// Actualizacion en vivo: cuando llega un evento WS de este pedido, se

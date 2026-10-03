@@ -1,4 +1,5 @@
 <script>
+	import { browser } from '$app/environment';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { usd } from '$lib/formato.js';
@@ -16,28 +17,47 @@
 
 	const IMAGEN_DEFECTO = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80';
 
-	// 1️⃣ PRIMERO: id desde la URL
-	const idRestaurante = Number(page.params.id);
+	// 1️⃣ PRIMERO: id desde la URL. $derived (no const): SvelteKit reutiliza
+	// esta misma instancia del componente al navegar entre dos restaurantes
+	// distintos, solo cambia page.params.
+	let idRestaurante = $derived(Number(page.params.id));
 
 	// 2️⃣ Datos reales: la lista (trae abierto_ahora/costo_envio, que dependen
 	// de la direccion) y los productos del menu por separado.
 	let restaurante = $state(null);
 	let productos = $state([]);
 	let resenas = $state([]);
+	// true = el restaurante existe pero no cubre la direccion actual (ej. vino
+	// de "te puede gustar", que no filtra por zona). Distinto de "no existe".
+	let fueraDeCobertura = $state(false);
 
-	cargarDirecciones();
+	if (browser) cargarDirecciones();
 
 	$effect(() => {
-		if ($direccionPrincipal) cargarRestaurante();
+		if ($direccionPrincipal) cargarRestaurante(idRestaurante);
 	});
 
-	async function cargarRestaurante() {
+	async function cargarRestaurante(id) {
+		fueraDeCobertura = false;
 		const params = new URLSearchParams({ id_direccion: $direccionPrincipal.id_direccion });
 		const lista = await api(`/api/cliente/restaurantes?${params}`);
-		restaurante = lista.find((r) => r.id_restaurante === idRestaurante) || null;
-		productos = await api(`/api/cliente/restaurantes/${idRestaurante}/productos`);
+		restaurante = lista.find((r) => r.id_restaurante === id) || null;
+
+		if (!restaurante) {
+			// No esta en la zona de esta direccion: ver si existe en otra zona
+			// antes de decir "no encontrado".
+			try {
+				restaurante = await api(`/api/cliente/restaurantes/${id}`);
+				fueraDeCobertura = true;
+			} catch {
+				restaurante = null;
+			}
+			return;
+		}
+
+		productos = await api(`/api/cliente/restaurantes/${id}/productos`);
 		try {
-			resenas = await api(`/api/cliente/restaurantes/${idRestaurante}/resenas`);
+			resenas = await api(`/api/cliente/restaurantes/${id}/resenas`);
 		} catch {
 			resenas = [];
 		}
@@ -86,7 +106,22 @@
 	}
 </script>
 
-{#if !restaurante}
+{#if fueraDeCobertura}
+	<!-- Existe, pero no hace entregas a la direccion actual -->
+	<div class="min-h-screen bg-surface flex items-center justify-center">
+		<div class="text-center px-4">
+			<span class="material-symbols-outlined text-6xl text-on-surface-variant/40">location_off</span>
+			<h1 class="text-2xl font-bold text-on-surface mt-4">{restaurante.nombre}</h1>
+			<p class="text-sm text-on-surface-variant mt-2">No hace entregas a tu dirección actual. Prueba con otra dirección.</p>
+			<button
+				onclick={() => goto('/cliente')}
+				class="mt-6 px-5 py-2.5 bg-primary-container hover:bg-primary text-white rounded-lg font-semibold transition-colors"
+			>
+				Volver al inicio
+			</button>
+		</div>
+	</div>
+{:else if !restaurante}
 	<!-- Restaurante no encontrado -->
 	<div class="min-h-screen bg-surface flex items-center justify-center">
 		<div class="text-center px-4">
