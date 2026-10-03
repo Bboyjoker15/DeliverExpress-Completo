@@ -179,7 +179,7 @@
     {/if}
   </div>
 
-  <div class="relative">
+  <div class="relative isolate">
     <div
       bind:this={mapaEl}
       style="width: 100%; height: 520px; min-height: 520px; display: block; background: #e5e7eb;"

@@ -61,7 +61,7 @@
 	});
 </script>
 
-<div class="flex flex-col gap-2">
+<div class="flex flex-col gap-2 isolate">
 	<div
 		bind:this={mapaEl}
 		style="width: 100%; height: {height}; display: block; background: #e5e7eb;"
