@@ -3,30 +3,7 @@ import { writable, derived } from 'svelte/store';
 // Estructura:
 // { id, titulo, mensaje, fecha (ISO), leida (bool), tipo, id_pedido, rol }
 
-const iniciales = [
-	{
-		id: 1,
-		titulo: 'Pedido confirmado',
-		mensaje: 'Tu pedido #18 fue recibido por el restaurante',
-		fecha: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-		leida: false,
-		tipo: 'pedido',
-		id_pedido: 18,
-		rol: 'cliente'
-	},
-	{
-		id: 2,
-		titulo: 'Repartidor en camino',
-		mensaje: 'Carlos M. retiró tu pedido y va hacia tu dirección',
-		fecha: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
-		leida: false,
-		tipo: 'pedido',
-		id_pedido: 18,
-		rol: 'cliente'
-	}
-];
-
-export const notificaciones = writable(iniciales);
+export const notificaciones = writable([]);
 
 export const noLeidas = derived(notificaciones, ($n) => $n.filter((x) => !x.leida).length);
 

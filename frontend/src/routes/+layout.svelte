@@ -48,10 +48,18 @@
 	// ══════════════════════════════════════════════
 	// WS → NOTIFICACIONES
 	// ══════════════════════════════════════════════
+	// trg_notificar_pedido (BD) manda id_estado (numerico, 1-6), no un codigo
+	// de texto. ESTADOS esta indexado por codigo, asi que hace falta el viaje
+	// inverso antes de poder usarlo.
+	function codigoDeEstado(id_estado) {
+		return Object.entries(ESTADOS).find(([, v]) => v.id === id_estado)?.[0] ?? null;
+	}
+
 	const offPedido = escuchar('pedido', (datos) => {
 		if (!datos?.id_pedido) return;
-		const estado = ESTADOS[datos.estado]?.texto ?? datos.estado ?? 'actualizado';
-		const rolDestino = mapearRolPedido(datos);
+		const codigo = codigoDeEstado(datos.id_estado);
+		const estado = ESTADOS[codigo]?.texto ?? 'actualizado';
+		const rolDestino = mapearRolPedido(codigo);
 
 		agregarNotificacion({
 			titulo: `Pedido #${datos.id_pedido}`,
@@ -74,18 +82,18 @@
 	});
 
 	// A qué rol va dirigida la notificación según el estado del pedido
-	function mapearRolPedido(datos) {
-		if (!datos.estado) return null;
+	function mapearRolPedido(codigo) {
+		if (!codigo) return null;
 		// Estados que le importan al cliente
-		if (['listo_para_retirar', 'en_camino', 'entregado', 'cancelado'].includes(datos.estado)) {
+		if (['listo_para_retirar', 'en_camino', 'entregado', 'cancelado'].includes(codigo)) {
 			return 'cliente';
 		}
 		// Estados que le importan al restaurante
-		if (['recibido'].includes(datos.estado)) {
+		if (['recibido'].includes(codigo)) {
 			return 'restaurante';
 		}
 		// Estados que le importan al repartidor
-		if (['en_camino'].includes(datos.estado)) {
+		if (['en_camino'].includes(codigo)) {
 			return 'repartidor';
 		}
 		return null; // todos
