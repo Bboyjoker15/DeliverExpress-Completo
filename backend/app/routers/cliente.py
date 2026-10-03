@@ -66,7 +66,7 @@ def listar_restaurantes(id_direccion: int, id_categoria: int | None = None,
                fn_costo_envio(fn_distancia_km(r.latitud, r.longitud, :rlat, :rlon)) AS costo_envio
         FROM restaurante r JOIN categoria c ON c.id_categoria = r.id_categoria
         JOIN restaurante_zona rz ON rz.id_restaurante = r.id_restaurante
-        WHERE r.activo = TRUE AND rz.id_zona = :z AND (:cat IS NULL OR r.id_categoria = :cat)
+        WHERE r.activo = TRUE AND rz.id_zona = :z AND (CAST(:cat AS INT) IS NULL OR r.id_categoria = :cat)
         ORDER BY r.nombre
     """), {"z": dir_["id_zona"], "rlat": dir_["latitud"], "rlon": dir_["longitud"],
            "d": id_direccion, "cat": id_categoria}).mappings().all()
