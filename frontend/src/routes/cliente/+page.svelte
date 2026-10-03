@@ -1,4 +1,5 @@
 <script>
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { usd } from '$lib/formato.js';
 	import { api } from '$lib/api.js';
@@ -15,9 +16,11 @@
 	let filtroEnvioGratis = $state(false);
 	let filtroCalificacion = $state(false);
 
-	cargarDirecciones();
-	api('/api/categorias').then((c) => (CATEGORIAS = c));
-	api('/api/cliente/recomendaciones').then((r) => (RECOMENDACIONES = r));
+	if (browser) {
+		cargarDirecciones();
+		api('/api/categorias').then((c) => (CATEGORIAS = c));
+		api('/api/cliente/recomendaciones').then((r) => (RECOMENDACIONES = r));
+	}
 
 	async function cargarRestaurantes() {
 		const params = new URLSearchParams({ id_direccion: $direccionPrincipal.id_direccion });

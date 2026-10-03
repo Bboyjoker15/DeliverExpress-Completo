@@ -1,4 +1,5 @@
 <script>
+	import { browser } from '$app/environment';
 	import { usd } from '$lib/formato.js';
 	import { mostrarToast } from '$lib/toast.js';
 	import {
@@ -14,7 +15,7 @@
 
 	const IMAGEN_DEFECTO = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80';
 
-	cargarMenu();
+	if (browser) cargarMenu();
 
 	// Modal
 	let modalAbierto = $state(false);

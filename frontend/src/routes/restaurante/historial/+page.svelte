@@ -1,10 +1,11 @@
 <script>
+	import { browser } from '$app/environment';
 	import { usd } from '$lib/formato.js';
 	import EstadoBadge from '$lib/componentes/EstadoBadge.svelte';
 	import { api } from '$lib/api.js';
 
 	let pedidos = $state([]);
-	api('/api/restaurante/pedidos?activos=false').then((d) => (pedidos = d));
+	if (browser) api('/api/restaurante/pedidos?activos=false').then((d) => (pedidos = d));
 
 	let historial = $derived(pedidos);
 

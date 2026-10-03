@@ -1,4 +1,5 @@
 <script>
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { usd } from '$lib/formato.js';
 	import EstadoBadge from '$lib/componentes/EstadoBadge.svelte';
@@ -6,7 +7,7 @@
 
 	const IMAGEN_DEFECTO = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80';
 
-	cargarPedidos();
+	if (browser) cargarPedidos();
 
 	let filtroActivo = $state('todos');
 

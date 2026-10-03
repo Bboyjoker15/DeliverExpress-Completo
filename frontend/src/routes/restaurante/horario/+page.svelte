@@ -1,4 +1,5 @@
 <script>
+	import { browser } from '$app/environment';
 	import { mostrarToast } from '$lib/toast.js';
 	import { horarios, cargarHorarios, actualizarHorarios, resetearHorarios } from '$lib/stores/horarios.js';
 	import SelectorHora from '$lib/componentes/SelectorHora.svelte';
@@ -17,7 +18,7 @@
 	// Orden para mostrar: Lunes primero
 	const ORDEN_DIAS = [1, 2, 3, 4, 5, 6, 0];
 
-	cargarHorarios();
+	if (browser) cargarHorarios();
 
 	let guardando = $state(false);
 

@@ -1,4 +1,5 @@
 <script>
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { sesion } from '$lib/stores/sesion.js';
 	import { usd } from '$lib/formato.js';
@@ -16,7 +17,7 @@
 		pedidos = await api('/api/restaurante/pedidos?activos=true');
 	}
 
-	cargarPedidos();
+	if (browser) cargarPedidos();
 
 	$effect(() => {
 		return escuchar('pedido', (datos) => {

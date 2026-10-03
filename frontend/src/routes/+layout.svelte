@@ -1,5 +1,4 @@
 <script>
-	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { sesion, cargarSesion, cerrarSesion, RUTA_POR_ROL } from '$lib/stores/sesion.js';
@@ -17,7 +16,11 @@
 
 	let { children } = $props();
 
-	onMount(cargarSesion);
+	// Sincrono (lee localStorage y ya protege con `browser` por dentro): debe
+	// correr ANTES del <script> de la pagina hija, no en onMount, porque esta
+	// se ejecuta antes de que onMount dispare y necesita el token ya puesto
+	// para sus propias llamadas a la API en carga inicial/refresh.
+	cargarSesion();
 
 	const RUTAS_SIN_HEADER = ['/login', '/registro', '/'];
 

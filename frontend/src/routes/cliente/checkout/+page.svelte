@@ -1,4 +1,5 @@
 <script>
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { usd, bs } from '$lib/formato.js';
 	import { mostrarToast } from '$lib/toast.js';
@@ -6,7 +7,7 @@
 	import { direcciones, cargarDirecciones } from '$lib/stores/direcciones.js';
 	import { api } from '$lib/api.js';
 
-	cargarDirecciones();
+	if (browser) cargarDirecciones();
 
 	// ───── Estado ─────
 	let propina = $state(2);

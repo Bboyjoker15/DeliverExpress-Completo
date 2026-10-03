@@ -1,4 +1,5 @@
 <script>
+	import { browser } from '$app/environment';
 	import { sesion } from '$lib/stores/sesion.js';
 	import { mostrarToast } from '$lib/toast.js';
 	import { direcciones, cargarDirecciones, agregarDireccion, marcarPrincipal } from '$lib/stores/direcciones.js';
@@ -6,8 +7,10 @@
 	import { api } from '$lib/api.js';
 
 	let ZONAS = $state([]);
-	cargarDirecciones();
-	api('/api/zonas').then((z) => (ZONAS = z));
+	if (browser) {
+		cargarDirecciones();
+		api('/api/zonas').then((z) => (ZONAS = z));
+	}
 
 	// Dirección principal actual
 	let direccionActual = $derived($direcciones.find((d) => d.principal) || $direcciones[0]);
