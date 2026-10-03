@@ -132,10 +132,11 @@ def revision(db: Session = Depends(get_db), user: dict = Depends(requiere_rol(*_
 def resolver_revision(tipo: Literal["cliente", "repartidor"], id: int,
                       db: Session = Depends(get_db), user: dict = Depends(requiere_rol(*_ROL))):
     """Saca un usuario de revisión (limpia en_revision). Suspender usuarios es función del panel admin."""
-    tabla, col = ("cliente", "id_cliente") if tipo == "cliente" else ("repartidor", "id_repartidor")
-    row = db.execute(
-        text(f"UPDATE {tabla} SET en_revision = FALSE WHERE {col} = :id AND en_revision = TRUE RETURNING {col}"),
-        {"id": id}).first()
+    if tipo == "cliente":
+        consulta = text("UPDATE cliente SET en_revision = FALSE WHERE id_cliente = :id AND en_revision = TRUE RETURNING id_cliente")
+    else:
+        consulta = text("UPDATE repartidor SET en_revision = FALSE WHERE id_repartidor = :id AND en_revision = TRUE RETURNING id_repartidor")
+    row = db.execute(consulta, {"id": id}).first()
     if row is None:
         raise ErrorAPI("NO_ENCONTRADO", "Usuario no está en revisión.", 404)
     db.commit()
