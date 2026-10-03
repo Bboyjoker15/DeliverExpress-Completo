@@ -28,7 +28,18 @@ DeliverExpress-Completo/
 
 Cada carpeta tiene su propio README con instrucciones detalladas.
 
-## Cómo levantar todo (3 terminales)
+## Arranque rápido (Windows, un solo comando)
+
+Con la base de datos ya cargada y `backend/.env` + `frontend/.env` ya configurados (ver abajo la primera vez):
+
+```powershell
+.\start-dev.ps1
+```
+
+Abre backend y frontend cada uno en su propia ventana de PowerShell. Si PowerShell bloquea el script por política de
+ejecución, corre `powershell -ExecutionPolicy Bypass -File .\start-dev.ps1` en su lugar.
+
+## Cómo levantar todo a mano (3 terminales)
 
 ### 1. Base de datos
 
