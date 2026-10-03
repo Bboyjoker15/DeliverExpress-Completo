@@ -1,19 +1,37 @@
 <script>
 	import { goto } from '$app/navigation';
 	import { usd } from '$lib/formato.js';
-	import { CATEGORIAS } from '$lib/mock/categorias.js';
-	import { RESTAURANTES } from '$lib/mock/restaurantes.js';
-	import { RECOMENDACIONES } from '$lib/mock/recomendaciones.js';
+	import { api } from '$lib/api.js';
+	import { direcciones, cargarDirecciones, direccionPrincipal } from '$lib/stores/direcciones.js';
 	import { carrito, cantidadTotal, precioTotal } from '$lib/stores/carrito.js';
 
+	const IMAGEN_DEFECTO = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80';
+
+	let CATEGORIAS = $state([]);
+	let RESTAURANTES = $state([]);
+	let RECOMENDACIONES = $state([]);
 	let categoriaActiva = $state(null);
 	let filtroCerca = $state(false);
 	let filtroEnvioGratis = $state(false);
 	let filtroCalificacion = $state(false);
 
+	cargarDirecciones();
+	api('/api/categorias').then((c) => (CATEGORIAS = c));
+	api('/api/cliente/recomendaciones').then((r) => (RECOMENDACIONES = r));
+
+	async function cargarRestaurantes() {
+		const params = new URLSearchParams({ id_direccion: $direccionPrincipal.id_direccion });
+		if (categoriaActiva !== null) params.set('id_categoria', categoriaActiva);
+		RESTAURANTES = await api(`/api/cliente/restaurantes?${params}`);
+	}
+
+	$effect(() => {
+		categoriaActiva;
+		if ($direccionPrincipal) cargarRestaurantes();
+	});
+
 	let restaurantesFiltrados = $derived.by(() => {
 		let lista = RESTAURANTES;
-		if (categoriaActiva !== null) lista = lista.filter((r) => r.id_categoria === categoriaActiva);
 		if (filtroCerca) lista = lista.filter((r) => r.distancia_km <= 2.5);
 		if (filtroEnvioGratis) lista = lista.filter((r) => r.costo_envio === 0);
 		if (filtroCalificacion) lista = lista.filter((r) => r.calificacion_promedio >= 4.5);
@@ -139,7 +157,7 @@
 								{r.abierto_ahora ? '' : 'grayscale opacity-75'}"
 						>
 							<div class="relative w-full h-44 bg-surface-container overflow-hidden">
-								<img src={r.imagen} alt={r.nombre} class="w-full h-full object-cover" />
+								<img src={IMAGEN_DEFECTO} alt={r.nombre} class="w-full h-full object-cover" />
 								<div class="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent"></div>
 								<div class="absolute bottom-2.5 left-2.5 flex items-center gap-1 bg-white/95 backdrop-blur px-2.5 py-1 rounded-full shadow-sm">
 									<span class="material-symbols-outlined text-[14px] text-primary">schedule</span>
@@ -208,7 +226,7 @@
 					<div class="shrink-0 w-56 bg-white rounded-xl shadow-sm p-3 flex flex-col justify-between">
 						<div>
 							<div class="relative w-full h-32 rounded-lg overflow-hidden mb-2">
-								<img src={rec.imagen} alt={rec.producto} class="w-full h-full object-cover" />
+								<img src={IMAGEN_DEFECTO} alt={rec.producto} class="w-full h-full object-cover" />
 								<span class="absolute bottom-1.5 left-1.5 bg-white/90 backdrop-blur px-2 py-0.5 rounded-full text-[10px] font-bold text-primary">
 									{rec.veces_pedido} veces
 								</span>
@@ -217,12 +235,12 @@
 							<p class="text-xs text-on-surface-variant truncate">{rec.restaurante}</p>
 						</div>
 						<div class="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
-							<span class="text-base font-bold text-on-surface">{usd(rec.precio)}</span>
+							<span class="text-xs text-on-surface-variant">{rec.categoria}</span>
 							<button
+								onclick={() => irAlRestaurante(rec.id_restaurante)}
 								class="px-3 py-1.5 bg-primary-container hover:bg-primary text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
 							>
-								<span class="material-symbols-outlined text-[15px]">add</span>
-								Agregar
+								Ver restaurante
 							</button>
 						</div>
 					</div>

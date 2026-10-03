@@ -5,7 +5,6 @@
 	import { obtenerPedidoPorId } from '$lib/stores/pedidos.js';
 	import { escuchar } from '$lib/ws.js';
 	import { mostrarToast } from '$lib/toast.js';
-	import { RESTAURANTES_MAPA_DEMO } from '$lib/mock/repartidores.js';
 	import EstadoBadge from '$lib/componentes/EstadoBadge.svelte';
 	import LineaEstados from '$lib/componentes/LineaEstados.svelte';
 	import MapaCoordinador from '$lib/componentes/MapaCoordinador.svelte';
@@ -31,21 +30,19 @@
 	// Marcadores para el mapa
 	// ══════════════════════════════════════════════
 
-	// Restaurante: buscar coordenadas por id
-	let coordsRestaurante = $derived.by(() => {
-		if (!pedido?.id_restaurante) return null;
-		const r = RESTAURANTES_MAPA_DEMO.find((x) => x.id_restaurante === pedido.id_restaurante);
-		return r
-			? { latitud: r.latitud, longitud: r.longitud, nombre: r.nombre }
-			: { latitud: 8.291, longitud: -62.715, nombre: pedido.nombre ?? 'Restaurante' };
-	});
+	// Restaurante: coordenadas reales que ya vienen en el pedido
+	let coordsRestaurante = $derived(
+		pedido?.restaurante
+			? { latitud: pedido.restaurante.latitud, longitud: pedido.restaurante.longitud, nombre: pedido.restaurante.nombre }
+			: null
+	);
 
-	// Cliente: coords fijas por pedido (mock) o default
+	// Cliente: coordenadas reales de la direccion de entrega del pedido
 	let coordsCliente = $derived({
-		latitud: 8.283,
-		longitud: -62.708,
-		nombre: 'Tu dirección',
-		direccion: pedido?.direccion_entrega ?? 'Destino de entrega'
+		latitud: pedido?.direccion?.latitud ?? 8.283,
+		longitud: pedido?.direccion?.longitud ?? -62.708,
+		nombre: 'Tú',
+		direccion: pedido?.direccion?.direccion ?? 'Destino de entrega'
 	});
 
 	let restaurantesMapa = $derived(
@@ -90,19 +87,20 @@
 	// WEBSOCKET
 	// ══════════════════════════════════════════════
 
-	// WS "pedido" → recargar el pedido (aquí solo notificamos)
+	// WS "pedido" → recargar el detalle completo (puede traer repartidor nuevo)
 	const offPedido = escuchar('pedido', (datos) => {
 		if (datos?.id_pedido !== idPedido) return;
 		mostrarToast('info', 'El estado del pedido cambió');
+		pedidoStore.refrescar();
 	});
 
 	// WS "ubicacion" → mover el repartidor en el mapa
 	const offUbicacion = escuchar('ubicacion', (datos) => {
 		if (datos?.id_pedido !== idPedido) return;
-		if (typeof datos.lat !== 'number' || typeof datos.lon !== 'number') return;
+		if (typeof datos.latitud !== 'number' || typeof datos.longitud !== 'number') return;
 		repartidorPos = {
-			latitud_actual: datos.lat,
-			longitud_actual: datos.lon
+			latitud_actual: datos.latitud,
+			longitud_actual: datos.longitud
 		};
 	});
 
@@ -186,7 +184,7 @@
 				<div class="flex flex-col gap-2 text-sm">
 					<div class="flex justify-between">
 						<span class="text-on-surface-variant">Restaurante</span>
-						<span class="font-semibold text-on-surface">{pedido.nombre}</span>
+						<span class="font-semibold text-on-surface">{pedido.restaurante.nombre}</span>
 					</div>
 					<div class="flex justify-between">
 						<span class="text-on-surface-variant">Tiempo estimado</span>

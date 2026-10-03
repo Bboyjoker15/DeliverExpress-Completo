@@ -3,9 +3,8 @@
 	import { goto } from '$app/navigation';
 	import { usd } from '$lib/formato.js';
 	import { mostrarToast } from '$lib/toast.js';
-	import { RESTAURANTES } from '$lib/mock/restaurantes.js';
-	import { PRODUCTOS_POR_RESTAURANTE } from '$lib/mock/productos.js';
-	import { obtenerResenasDe } from '$lib/stores/resenas.js';
+	import { api } from '$lib/api.js';
+	import { direccionPrincipal, cargarDirecciones } from '$lib/stores/direcciones.js';
 	import {
 		carrito,
 		agregarAlCarrito,
@@ -15,20 +14,36 @@
 		precioTotal
 	} from '$lib/stores/carrito.js';
 
+	const IMAGEN_DEFECTO = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80';
+
 	// 1️⃣ PRIMERO: id desde la URL
 	const idRestaurante = Number(page.params.id);
 
-	// 2️⃣ Buscar datos con el id
-	const restaurante = RESTAURANTES.find((r) => r.id_restaurante === idRestaurante);
-	const productos = PRODUCTOS_POR_RESTAURANTE[idRestaurante] || [];
-	const categorias = ['Todos', ...new Set(productos.map((p) => p.categoria))];
+	// 2️⃣ Datos reales: la lista (trae abierto_ahora/costo_envio, que dependen
+	// de la direccion) y los productos del menu por separado.
+	let restaurante = $state(null);
+	let productos = $state([]);
+	let resenas = $state([]);
 
-	// 3️⃣ Store de reseñas (necesita idRestaurante ya declarado)
-	const resenasStore = obtenerResenasDe(idRestaurante);
-	let resenas = $derived($resenasStore);
+	cargarDirecciones();
+
+	$effect(() => {
+		if ($direccionPrincipal) cargarRestaurante();
+	});
+
+	async function cargarRestaurante() {
+		const params = new URLSearchParams({ id_direccion: $direccionPrincipal.id_direccion });
+		const lista = await api(`/api/cliente/restaurantes?${params}`);
+		restaurante = lista.find((r) => r.id_restaurante === idRestaurante) || null;
+		productos = await api(`/api/cliente/restaurantes/${idRestaurante}/productos`);
+		try {
+			resenas = await api(`/api/cliente/restaurantes/${idRestaurante}/resenas`);
+		} catch {
+			resenas = [];
+		}
+	}
 
 	// ───── Estado ─────
-	let categoriaActiva = $state('Todos');
 	let mostrarModalConflicto = $state(false);
 	let productoPendiente = $state(null);
 
@@ -41,17 +56,14 @@
 		return map;
 	});
 
-	let productosFiltrados = $derived(
-		categoriaActiva === 'Todos'
-			? productos
-			: productos.filter((p) => p.categoria === categoriaActiva)
-	);
+	let productosFiltrados = $derived(productos);
 
 	// ───── Funciones ─────
 	function agregar(producto) {
-		const exito = agregarAlCarrito(restaurante, producto);
+		const conImagen = { ...producto, imagen: IMAGEN_DEFECTO };
+		const exito = agregarAlCarrito(restaurante, conImagen);
 		if (!exito) {
-			productoPendiente = producto;
+			productoPendiente = conImagen;
 			mostrarModalConflicto = true;
 		}
 	}
@@ -93,7 +105,7 @@
 	<div class="min-h-screen bg-surface pb-28">
 		<!-- ═══════════ HERO ═══════════ -->
 		<div class="relative w-full h-64 sm:h-72 overflow-hidden">
-			<img src={restaurante.imagen} alt={restaurante.nombre} class="w-full h-full object-cover" />
+			<img src={IMAGEN_DEFECTO} alt={restaurante.nombre} class="w-full h-full object-cover" />
 			<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent"></div>
 
 			<!-- Botón volver -->
@@ -155,23 +167,6 @@
 			</div>
 		</div>
 
-		<!-- ═══════════ CATEGORÍAS ═══════════ -->
-		<div class="max-w-[900px] mx-auto px-4 mt-6">
-			<div class="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
-				{#each categorias as cat (cat)}
-					<button
-						onclick={() => (categoriaActiva = cat)}
-						class="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-colors
-							{categoriaActiva === cat
-							? 'bg-primary-container text-white shadow-sm'
-							: 'bg-white text-on-surface hover:bg-surface-container'}"
-					>
-						{cat}
-					</button>
-				{/each}
-			</div>
-		</div>
-
 		<!-- ═══════════ PRODUCTOS ═══════════ -->
 		<div class="max-w-[900px] mx-auto px-4 mt-4">
 			{#if productosFiltrados.length === 0}
@@ -188,11 +183,6 @@
 							<div class="flex-1 min-w-0">
 								<div class="flex items-center gap-2 flex-wrap mb-1">
 									<h3 class="text-base font-bold text-on-surface">{p.nombre}</h3>
-									{#if p.badge}
-										<span class="bg-secondary-container text-on-secondary-container text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
-											{p.badge}
-										</span>
-									{/if}
 									{#if p.exento_iva}
 										<span class="bg-tertiary-container/20 text-tertiary text-[10px] font-bold px-2 py-0.5 rounded-full">
 											Exento IVA
@@ -205,7 +195,7 @@
 
 							<!-- Imagen + botón -->
 							<div class="relative w-24 h-24 shrink-0">
-								<img src={p.imagen} alt={p.nombre} class="w-24 h-24 object-cover rounded-lg" />
+								<img src={IMAGEN_DEFECTO} alt={p.nombre} class="w-24 h-24 object-cover rounded-lg" />
 
 								{#if qty > 0}
 									<div class="absolute -bottom-2 -right-2 flex items-center bg-primary-container text-white rounded-full shadow-md z-10">

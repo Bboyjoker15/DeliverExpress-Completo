@@ -3,7 +3,7 @@
     import { onMount } from 'svelte';
     import { iniciarSesion, RUTA_POR_ROL, sesion, cargarSesion } from '$lib/stores/sesion.js';
     import { mostrarToast } from '$lib/toast.js';
-    import { loginMock } from '$lib/mock/usuarios.js';
+    import { api } from '$lib/api.js';
 
 	let email = $state('cliente01@demo.com');
     let password = $state('demo1234');
@@ -28,7 +28,7 @@
 		cargando = true;
 
 		try {
-			const data = await loginMock(email, password);
+			const data = await api('/api/auth/login', { metodo: 'POST', cuerpo: { email, password } });
 			iniciarSesion(data);
 			mostrarToast('exito', `¡Bienvenido, ${data.nombre}!`);
 

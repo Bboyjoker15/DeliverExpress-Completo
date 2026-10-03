@@ -2,25 +2,34 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { mostrarToast } from '$lib/toast.js';
-	import { obtenerRevisionMock } from '$lib/mock/coordinadores.js';
+	import { api } from '$lib/api.js';
 
 	let datos = $state(null);
 	let cargando = $state(true);
 
-	onMount(async () => {
+	async function recargar() {
+		cargando = true;
 		try {
-			datos = await obtenerRevisionMock();
+			datos = await api('/api/coordinador/revision');
+		} catch (err) {
+			mostrarToast('error', err.message);
 		} finally {
 			cargando = false;
 		}
-	});
-
-	function aprobar(tipo, id) {
-		mostrarToast('exito', 'Usuario aprobado');
 	}
 
-	function suspender(tipo, id) {
-		mostrarToast('info', 'Usuario suspendido');
+	onMount(recargar);
+
+	// Aprobar = sacar al usuario de revisión. Suspender usuarios es
+	// función del panel admin (PUT /api/admin/usuarios/{id}/activo).
+	async function aprobar(tipo, id) {
+		try {
+			await api(`/api/coordinador/revision/${tipo}/${id}/resolver`, { metodo: 'POST' });
+			mostrarToast('exito', 'Usuario aprobado');
+			await recargar();
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 </script>
 
@@ -65,12 +74,11 @@
 									<div class="flex items-center gap-2">
 										<span class="font-semibold text-sm text-on-surface">{c.nombre}</span>
 										<span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">
-											★ {c.rating}
+											★ {c.calificacion_promedio}
 										</span>
 									</div>
-									<p class="text-xs text-on-surface-variant mt-0.5">{c.motivo}</p>
 									<p class="text-[11px] text-on-surface-variant/70 mt-1">
-										{c.pedidos} pedidos · {c.cancelaciones} cancelaciones
+										{c.total_calificaciones} calificaciones
 									</p>
 								</div>
 								<div class="flex gap-2 shrink-0">
@@ -79,12 +87,6 @@
 										class="text-[11px] font-semibold text-green-700 border border-green-200 rounded-md px-2.5 py-1 hover:bg-green-50"
 									>
 										Aprobar
-									</button>
-									<button
-										onclick={() => suspender('cliente', c.id_cliente)}
-										class="text-[11px] font-semibold text-red-600 border border-red-200 rounded-md px-2.5 py-1 hover:bg-red-50"
-									>
-										Suspender
 									</button>
 								</div>
 							</div>
@@ -108,12 +110,11 @@
 									<div class="flex items-center gap-2">
 										<span class="font-semibold text-sm text-on-surface">{r.nombre}</span>
 										<span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">
-											★ {r.rating}
+											★ {r.calificacion_promedio}
 										</span>
 									</div>
-									<p class="text-xs text-on-surface-variant mt-0.5">{r.motivo}</p>
 									<p class="text-[11px] text-on-surface-variant/70 mt-1">
-										{r.viajes} viajes · {r.rechazos} rechazos
+										{r.total_calificaciones} calificaciones
 									</p>
 								</div>
 								<div class="flex gap-2 shrink-0">
@@ -122,12 +123,6 @@
 										class="text-[11px] font-semibold text-green-700 border border-green-200 rounded-md px-2.5 py-1 hover:bg-green-50"
 									>
 										Aprobar
-									</button>
-									<button
-										onclick={() => suspender('repartidor', r.id_repartidor)}
-										class="text-[11px] font-semibold text-red-600 border border-red-200 rounded-md px-2.5 py-1 hover:bg-red-50"
-									>
-										Suspender
 									</button>
 								</div>
 							</div>

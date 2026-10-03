@@ -1,32 +1,40 @@
 import { writable } from 'svelte/store';
-import { browser } from '$app/environment';
-import { HORARIOS_INICIALES } from '$lib/mock/horarios.js';
+import { api } from '$lib/api.js';
 
-const STORAGE_KEY = 'horarios';
+// La API solo devuelve los dias ABIERTOS ({dia_semana, hora_apertura,
+// hora_cierre}); un dia sin fila = cerrado todo el dia. Aqui se reconstruyen
+// los 7 dias con un flag "abierto" para la UI.
+export const horarios = writable(
+	Array.from({ length: 7 }, (_, dia_semana) => ({
+		dia_semana,
+		abierto: false,
+		hora_apertura: '08:00',
+		hora_cierre: '22:00'
+	}))
+);
 
-function cargar() {
-	if (!browser) return HORARIOS_INICIALES;
-	const raw = localStorage.getItem(STORAGE_KEY);
-	if (!raw) return HORARIOS_INICIALES;
-	try {
-		return JSON.parse(raw);
-	} catch {
-		return HORARIOS_INICIALES;
-	}
+export async function cargarHorarios() {
+	const abiertos = await api('/api/restaurante/horarios');
+	const porDia = new Map(abiertos.map((h) => [h.dia_semana, h]));
+	horarios.set(
+		Array.from({ length: 7 }, (_, dia_semana) => {
+			const h = porDia.get(dia_semana);
+			return h
+				? { dia_semana, abierto: true, hora_apertura: h.hora_apertura, hora_cierre: h.hora_cierre }
+				: { dia_semana, abierto: false, hora_apertura: '08:00', hora_cierre: '22:00' };
+		})
+	);
 }
 
-export const horarios = writable(cargar());
-
-if (browser) {
-	horarios.subscribe((valor) => {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(valor));
-	});
+// Reemplaza el horario completo: solo se mandan los dias marcados "abierto".
+export async function actualizarHorarios(lista) {
+	const cuerpo = lista
+		.filter((h) => h.abierto)
+		.map((h) => ({ dia_semana: h.dia_semana, hora_apertura: h.hora_apertura, hora_cierre: h.hora_cierre }));
+	await api('/api/restaurante/horarios', { metodo: 'PUT', cuerpo });
+	await cargarHorarios();
 }
 
-export function actualizarHorarios(lista) {
-	horarios.set(lista);
-}
-
-export function resetearHorarios() {
-	horarios.set(HORARIOS_INICIALES);
+export async function resetearHorarios() {
+	await cargarHorarios();
 }

@@ -3,10 +3,10 @@
 	import { usd, bs } from '$lib/formato.js';
 	import { mostrarToast } from '$lib/toast.js';
 	import { carrito, cantidadTotal, precioTotal, vaciarCarrito } from '$lib/stores/carrito.js';
-	import { direcciones } from '$lib/stores/direcciones.js';
-	import { cotizarMock } from '$lib/mock/cotizacion.js';
-	import { crearPedidoMock } from '$lib/mock/crear-pedido.js';
-	import { agregarPedido } from '$lib/stores/pedidos.js';
+	import { direcciones, cargarDirecciones } from '$lib/stores/direcciones.js';
+	import { api } from '$lib/api.js';
+
+	cargarDirecciones();
 
 	// ───── Estado ─────
 	let propina = $state(2);
@@ -50,11 +50,18 @@
 	});
 
 	async function refrescarCotizacion(propinaFinal) {
+		if (!direccionActual) return;
 		cotizando = true;
 		try {
-			cotizacion = await cotizarMock({
-				propina: Number(propinaFinal),
-				moneda_pago: moneda
+			cotizacion = await api('/api/cliente/pedidos/cotizar', {
+				metodo: 'POST',
+				cuerpo: {
+					id_restaurante: $carrito.id_restaurante,
+					id_direccion: direccionActual.id_direccion,
+					productos: $carrito.items.map((i) => ({ id_producto: i.id_producto, cantidad: i.cantidad })),
+					propina: Number(propinaFinal),
+					moneda_pago: moneda
+				}
 			});
 		} catch (err) {
 			mostrarToast('error', err.message);
@@ -132,15 +139,17 @@
 			const ultimos4 = numeroTarjeta.replace(/\s/g, '').slice(-4);
 			const propinaFinal = propinaPersonalizada ? Number(propinaOtro) : propina;
 
-			const pedido = await crearPedidoMock({
-				id_direccion: direccionActual.id_direccion,
-				propina: propinaFinal,
-				moneda_pago: moneda,
-				ultimos4
+			const pedido = await api('/api/cliente/pedidos', {
+				metodo: 'POST',
+				cuerpo: {
+					id_restaurante: $carrito.id_restaurante,
+					id_direccion: direccionActual.id_direccion,
+					productos: $carrito.items.map((i) => ({ id_producto: i.id_producto, cantidad: i.cantidad })),
+					propina: propinaFinal,
+					moneda_pago: moneda,
+					ultimos4
+				}
 			});
-
-			// 🔑 Agregar el pedido al store para que aparezca en la lista
-			agregarPedido(pedido);
 
 			vaciarCarrito();
 			mostrarToast('exito', `¡Pedido #${pedido.id_pedido} confirmado!`);

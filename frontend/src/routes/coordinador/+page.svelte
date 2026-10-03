@@ -3,25 +3,45 @@
 	import { goto } from '$app/navigation';
 	import { sesion } from '$lib/stores/sesion.js';
 	import { escuchar } from '$lib/ws.js';
-	import { PEDIDOS_ACTIVOS_COORDINADOR_DEMO } from '$lib/mock/pedidos.js';
-	import {
-		REPARTIDORES_DISPONIBLES_DEMO,
-		RESTAURANTES_MAPA_DEMO
-	} from '$lib/mock/repartidores.js';
 	import { usd } from '$lib/formato.js';
 	import { mostrarToast } from '$lib/toast.js';
+	import { api } from '$lib/api.js';
 	import EstadoBadge from '$lib/componentes/EstadoBadge.svelte';
 	import MapaCoordinador from '$lib/componentes/MapaCoordinador.svelte';
 
-	let pedidos = $state([...PEDIDOS_ACTIVOS_COORDINADOR_DEMO]);
-	let repartidores = $state([...REPARTIDORES_DISPONIBLES_DEMO]);
+	let pedidosActivos = $state([]);
+	let repartidores = $state([]);
 
-	let pedidosActivos = $derived(
-		pedidos.filter((p) => p.estado !== 'entregado' && p.estado !== 'cancelado')
+	// vw_pedidos_activos ya solo trae restaurantes con pedidos en curso.
+	let restaurantesMapa = $derived.by(() => {
+		const vistos = new Map();
+		for (const p of pedidosActivos) {
+			if (!vistos.has(p.id_restaurante)) {
+				vistos.set(p.id_restaurante, {
+					latitud: p.restaurante_lat,
+					longitud: p.restaurante_lon,
+					nombre: p.restaurante,
+					categoria: 'Pedidos activos'
+				});
+			}
+		}
+		return [...vistos.values()];
+	});
+
+	let repartidoresMapa = $derived(
+		repartidores.map((r) => ({
+			latitud_actual: r.latitud_actual,
+			longitud_actual: r.longitud_actual,
+			nombre: r.nombre,
+			vehiculo: r.tipo_vehiculo,
+			zona: r.zona,
+			calificacion_promedio: r.calificacion_promedio,
+			disponibilidad: r.disponibilidad
+		}))
 	);
+
 	let repartidoresLibres = $derived(repartidores.filter((r) => r.disponibilidad === 'libre'));
 	let repartidoresOcupados = $derived(repartidores.filter((r) => r.disponibilidad === 'ocupado'));
-	let restaurantesCount = $derived(RESTAURANTES_MAPA_DEMO.length);
 	let tiempoPromedio = $derived(
 		Math.round(
 			pedidosActivos.reduce((s, p) => s + (p.tiempo_estimado_min || 0), 0) /
@@ -30,6 +50,16 @@
 	);
 	let pedidosAtrasados = $derived(pedidosActivos.filter((p) => estaAtrasado(p)).length);
 	let pedidosSinRepartidor = $derived(pedidosActivos.filter((p) => sinRepartidor(p)).length);
+
+	function iniciales(nombre) {
+		return (nombre || '')
+			.split(' ')
+			.filter(Boolean)
+			.slice(0, 2)
+			.map((p) => p[0])
+			.join('')
+			.toUpperCase();
+	}
 
 	let reasignarAbierto = $state(false);
 	let pedidoAReasignar = $state(null);
@@ -45,33 +75,35 @@
 	// ══════════════════════════════════════════════
 	// HELPERS
 	// ══════════════════════════════════════════════
-	function minutosDesde(fechaISO) {
-		if (!fechaISO) return 0;
-		return Math.floor((Date.now() - new Date(fechaISO).getTime()) / 60000);
-	}
-
-	function minutosEnEstado(p) {
-		const ultimo = p.historial?.[p.historial.length - 1];
-		if (!ultimo?.fecha_hora) return minutosDesde(p.fecha_creacion);
-		return minutosDesde(ultimo.fecha_hora);
-	}
-
 	function estaAtrasado(p) {
-		const enEstado = minutosEnEstado(p);
-		const desdeCreacion = minutosDesde(p.fecha_creacion);
 		const tiempoPrep = p.tiempo_prep_min ?? 15;
 		const tiempoEst = p.tiempo_estimado_min ?? 30;
 
-		if (p.estado === 'recibido' && enEstado > 10) return true;
-		if (p.estado === 'en_preparacion' && enEstado > tiempoPrep) return true;
-		if (p.estado === 'en_camino' && desdeCreacion > tiempoEst) return true;
+		if (p.estado_codigo === 'recibido' && p.minutos_en_estado > 10) return true;
+		if (p.estado_codigo === 'en_preparacion' && p.minutos_en_estado > tiempoPrep) return true;
+		if (p.estado_codigo === 'en_camino' && p.minutos_desde_creacion > tiempoEst) return true;
 		return false;
 	}
 
 	function sinRepartidor(p) {
-		const sinRep = !p.repartidor || !p.repartidor.id_repartidor;
-		return sinRep && (p.estado === 'en_preparacion' || p.estado === 'listo_para_retirar');
+		return !p.id_repartidor && (p.estado_codigo === 'en_preparacion' || p.estado_codigo === 'listo_para_retirar');
 	}
+
+	// ══════════════════════════════════════════════
+	// CARGA
+	// ══════════════════════════════════════════════
+	async function recargarPedidos() {
+		pedidosActivos = await api('/api/coordinador/pedidos-activos');
+	}
+
+	async function recargarRepartidores() {
+		repartidores = await api('/api/coordinador/repartidores');
+	}
+
+	onMount(() => {
+		recargarPedidos();
+		recargarRepartidores();
+	});
 
 	// ══════════════════════════════════════════════
 	// WEBSOCKET
@@ -81,7 +113,7 @@
 		if (!datos?.id_repartidor) return;
 		repartidores = repartidores.map((r) =>
 			r.id_repartidor === datos.id_repartidor
-				? { ...r, latitud_actual: datos.lat, longitud_actual: datos.lon }
+				? { ...r, latitud_actual: datos.latitud, longitud_actual: datos.longitud }
 				: r
 		);
 	});
@@ -92,10 +124,6 @@
 		offUbicacion();
 		offOferta();
 	});
-
-	async function recargarPedidos() {
-		pedidos = [...PEDIDOS_ACTIVOS_COORDINADOR_DEMO];
-	}
 
 	// ══════════════════════════════════════════════
 	// FULLSCREEN
@@ -127,9 +155,15 @@
 	// ══════════════════════════════════════════════
 	// DETALLE
 	// ══════════════════════════════════════════════
-	function abrirDetalle(p) {
-		pedidoDetalle = p;
+	async function abrirDetalle(p) {
 		detalleAbierto = true;
+		pedidoDetalle = null;
+		try {
+			pedidoDetalle = await api(`/api/coordinador/pedidos/${p.id_pedido}`);
+		} catch (err) {
+			mostrarToast('error', err.message);
+			detalleAbierto = false;
+		}
 	}
 
 	// ══════════════════════════════════════════════
@@ -141,28 +175,19 @@
 		reasignarAbierto = true;
 	}
 
-	function confirmarReasignar() {
+	async function confirmarReasignar() {
 		if (!repartidorSeleccionado || !pedidoAReasignar) return;
-
-		const idAnterior = pedidoAReasignar.repartidor?.id_repartidor;
-		const idNuevo = repartidorSeleccionado.id_repartidor;
-
-		pedidos = pedidos.map((p) =>
-			p.id_pedido === pedidoAReasignar.id_pedido
-				? { ...p, repartidor: repartidorSeleccionado }
-				: p
-		);
-
-		repartidores = repartidores.map((r) => {
-			if (r.id_repartidor === idNuevo) return { ...r, disponibilidad: 'ocupado' };
-			if (idAnterior && r.id_repartidor === idAnterior && idAnterior !== idNuevo) {
-				return { ...r, disponibilidad: 'libre' };
-			}
-			return r;
-		});
-
-		mostrarToast('exito', 'Pedido reasignado');
-		reasignarAbierto = false;
+		try {
+			await api(`/api/coordinador/pedidos/${pedidoAReasignar.id_pedido}/reasignar`, {
+				metodo: 'POST',
+				cuerpo: { id_repartidor: repartidorSeleccionado.id_repartidor }
+			});
+			await Promise.all([recargarPedidos(), recargarRepartidores()]);
+			mostrarToast('exito', 'Pedido reasignado');
+			reasignarAbierto = false;
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 
 	// ══════════════════════════════════════════════
@@ -174,24 +199,23 @@
 		cancelarAbierto = true;
 	}
 
-	function confirmarCancelar() {
+	async function confirmarCancelar() {
 		if (!pedidoACancelar) return;
 		if (!motivoCancelacion.trim()) {
 			mostrarToast('error', 'Escribe el motivo de cancelación');
 			return;
 		}
-
-		const idAnterior = pedidoACancelar.repartidor?.id_repartidor;
-		pedidos = pedidos.filter((p) => p.id_pedido !== pedidoACancelar.id_pedido);
-
-		if (idAnterior) {
-			repartidores = repartidores.map((r) =>
-				r.id_repartidor === idAnterior ? { ...r, disponibilidad: 'libre' } : r
-			);
+		try {
+			await api(`/api/coordinador/pedidos/${pedidoACancelar.id_pedido}/cancelar`, {
+				metodo: 'POST',
+				cuerpo: { motivo: motivoCancelacion.trim() }
+			});
+			await Promise.all([recargarPedidos(), recargarRepartidores()]);
+			mostrarToast('exito', 'Pedido cancelado');
+			cancelarAbierto = false;
+		} catch (err) {
+			mostrarToast('error', err.message);
 		}
-
-		mostrarToast('exito', 'Pedido cancelado');
-		cancelarAbierto = false;
 	}
 </script>
 
@@ -336,15 +360,15 @@
 							<h2 class="text-sm font-bold text-slate-900">Mapa en vivo</h2>
 							<span class="text-[11px] text-slate-400">·</span>
 							<span class="text-[11px] text-slate-500">
-								{repartidores.length} repartidores · {pedidosActivos.length} pedidos · {restaurantesCount} restaurantes
+								{repartidores.length} repartidores · {pedidosActivos.length} pedidos · {restaurantesMapa.length} restaurantes
 							</span>
 						</div>
 					</div>
 					<div class="p-3">
 						<MapaCoordinador
-							restaurantes={RESTAURANTES_MAPA_DEMO}
-							repartidores={repartidores}
-							pedidos={pedidosActivos}
+							restaurantes={restaurantesMapa}
+							repartidores={repartidoresMapa}
+							pedidos={[]}
 						/>
 					</div>
 				</div>
@@ -373,7 +397,7 @@
 							<div class="flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition-colors">
 								<div class="relative shrink-0">
 									<div class="w-9 h-9 rounded-full bg-primary-container text-white flex items-center justify-center font-bold text-[11px]">
-										{r.iniciales}
+										{iniciales(r.nombre)}
 									</div>
 									<span
 										class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white
@@ -385,7 +409,7 @@
 									<div class="flex items-center gap-1 mt-0.5">
 										<span class="material-symbols-outlined text-[11px] text-amber-400" style="font-variation-settings:'FILL' 1;">star</span>
 										<span class="text-[10px] font-bold text-slate-600">{r.calificacion_promedio}</span>
-										<span class="text-[10px] text-slate-400 capitalize truncate">· {r.vehiculo}</span>
+										<span class="text-[10px] text-slate-400 capitalize truncate">· {r.tipo_vehiculo}</span>
 									</div>
 								</div>
 							</div>
@@ -439,7 +463,7 @@
 									<div class="flex items-center justify-between gap-2">
 										<div class="flex items-center gap-2 min-w-0">
 											<span class="text-xs font-black text-slate-900 shrink-0">#{p.id_pedido}</span>
-											<EstadoBadge codigo={p.estado} />
+											<EstadoBadge codigo={p.estado_codigo} />
 										</div>
 										{#if atrasado}
 											<span class="material-symbols-outlined text-red-500 text-[16px] shrink-0" title="Atrasado">warning</span>
@@ -449,20 +473,20 @@
 									<!-- Restaurante -->
 									<div class="flex items-center gap-1.5 text-xs">
 										<span class="material-symbols-outlined text-[14px] text-primary-container">storefront</span>
-										<span class="text-slate-700 font-medium truncate">{p.restaurante?.nombre || '—'}</span>
+										<span class="text-slate-700 font-medium truncate">{p.restaurante || '—'}</span>
 									</div>
 
 									<!-- Cliente -->
 									<div class="flex items-center gap-1.5 text-xs">
 										<span class="material-symbols-outlined text-[14px] text-slate-400">person</span>
-										<span class="text-slate-500 truncate">{p.cliente?.nombre || '—'}</span>
+										<span class="text-slate-500 truncate">{p.cliente || '—'}</span>
 									</div>
 
 									<!-- Repartidor -->
-									{#if p.repartidor?.id_repartidor}
+									{#if p.id_repartidor}
 										<div class="flex items-center gap-1.5 text-xs">
 											<span class="material-symbols-outlined text-[14px] text-purple-600">two_wheeler</span>
-											<span class="text-purple-700 font-medium truncate">{p.repartidor.nombre}</span>
+											<span class="text-purple-700 font-medium truncate">{p.repartidor}</span>
 										</div>
 									{/if}
 
@@ -476,7 +500,7 @@
 									{#if atrasado}
 										<span class="text-[10px] text-red-700 font-bold flex items-center gap-1">
 											<span class="material-symbols-outlined text-[12px]">schedule</span>
-											{minutosEnEstado(p)} min en este estado
+											{p.minutos_en_estado} min en este estado
 										</span>
 									{/if}
 
@@ -528,18 +552,23 @@
 	<!-- ══════════════════════════════════════════════
 	     MODAL DETALLE
 	     ══════════════════════════════════════════════ -->
-	{#if detalleAbierto && pedidoDetalle}
+	{#if detalleAbierto}
 		<div
 			class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
 			role="presentation"
 			onclick={(e) => e.target === e.currentTarget && (detalleAbierto = false)}
 		>
 			<div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] overflow-hidden">
+			{#if !pedidoDetalle}
+				<div class="p-10 text-center">
+					<div class="animate-spin w-8 h-8 border-4 border-primary-container border-t-transparent rounded-full mx-auto"></div>
+				</div>
+			{:else}
 				<!-- Header -->
 				<div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
 					<div class="flex items-center gap-2">
 						<h3 class="text-base font-bold text-slate-900">Pedido #{pedidoDetalle.id_pedido}</h3>
-						<EstadoBadge codigo={pedidoDetalle.estado} />
+						<EstadoBadge codigo={pedidoDetalle.estado_codigo} />
 					</div>
 					<button
 						onclick={() => (detalleAbierto = false)}
@@ -559,7 +588,6 @@
 						<div>
 							<p class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Recoger en</p>
 							<p class="text-sm font-bold text-slate-900">{pedidoDetalle.restaurante?.nombre}</p>
-							<p class="text-xs text-slate-500">{pedidoDetalle.restaurante?.direccion}</p>
 						</div>
 					</div>
 
@@ -571,7 +599,7 @@
 						<div>
 							<p class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Entregar a</p>
 							<p class="text-sm font-bold text-slate-900">{pedidoDetalle.cliente?.nombre}</p>
-							<p class="text-xs text-slate-500">{pedidoDetalle.cliente?.direccion}</p>
+							<p class="text-xs text-slate-500">{pedidoDetalle.direccion?.direccion}</p>
 						</div>
 					</div>
 
@@ -626,6 +654,7 @@
 						Reasignar
 					</button>
 				</div>
+			{/if}
 			</div>
 		</div>
 	{/if}
@@ -668,11 +697,11 @@
 										: 'border-slate-200 hover:border-slate-300'}"
 							>
 								<div class="w-10 h-10 rounded-full bg-primary-container text-white flex items-center justify-center font-bold text-xs shrink-0">
-									{r.iniciales}
+									{iniciales(r.nombre)}
 								</div>
 								<div class="flex-1 min-w-0">
 									<div class="text-sm font-bold text-slate-900 truncate">{r.nombre}</div>
-									<div class="text-[11px] text-slate-500 capitalize truncate">{r.vehiculo} · {r.zona}</div>
+									<div class="text-[11px] text-slate-500 capitalize truncate">{r.tipo_vehiculo} · {r.zona}</div>
 								</div>
 								<div class="flex items-center gap-1 text-xs font-bold text-slate-700 shrink-0">
 									<span class="material-symbols-outlined text-[13px] text-amber-400" style="font-variation-settings:'FILL' 1;">star</span>
@@ -723,7 +752,7 @@
 
 					<p class="text-sm text-slate-700">
 						Vas a cancelar el pedido <span class="font-bold">#{pedidoACancelar?.id_pedido}</span> de
-						<span class="font-bold">{pedidoACancelar?.restaurante?.nombre}</span>.
+						<span class="font-bold">{typeof pedidoACancelar?.restaurante === 'string' ? pedidoACancelar.restaurante : pedidoACancelar?.restaurante?.nombre}</span>.
 					</p>
 
 					<label class="flex flex-col gap-1.5">

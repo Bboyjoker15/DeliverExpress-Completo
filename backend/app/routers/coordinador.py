@@ -1,5 +1,6 @@
 """COORDINADOR (roadmap_backend §4) [coordinador, admin]. Lee vw_* (§9) y tabla repartidor (§3)."""
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
@@ -72,12 +73,20 @@ def detalle_pedido(id: int, db: Session = Depends(get_db), user: dict = Depends(
 @router.get("/reportes/tiempos", response_model=list[VwTiemposRow])
 def reportes_tiempos(desde: date | None = Query(None), hasta: date | None = Query(None),
                      db: Session = Depends(get_db), user: dict = Depends(requiere_rol(*_ROL))):
-    rows = db.execute(text("""
-        SELECT * FROM vw_tiempos_por_etapa
-        WHERE (:desde IS NULL OR fecha_creacion >= :desde::date)
-          AND (:hasta IS NULL OR fecha_creacion < (:hasta::date + interval '1 day'))
-        ORDER BY fecha_creacion
-    """), {"desde": desde, "hasta": hasta}).mappings().all()
+    # Filtros opcionales armados en Python: un mismo placeholder en
+    # "IS NULL" y en CAST deja a Postgres sin tipo que inferir (AmbiguousParameter).
+    q = "SELECT * FROM vw_tiempos_por_etapa"
+    conds, params = [], {}
+    if desde is not None:
+        conds.append("fecha_creacion >= :desde")
+        params["desde"] = desde
+    if hasta is not None:
+        conds.append("fecha_creacion < (CAST(:hasta AS DATE) + interval '1 day')")
+        params["hasta"] = hasta
+    if conds:
+        q += " WHERE " + " AND ".join(conds)
+    q += " ORDER BY fecha_creacion"
+    rows = db.execute(text(q), params).mappings().all()
     return [VwTiemposRow(**r) for r in rows]
 
 
@@ -96,11 +105,18 @@ def reportes_repartidores(db: Session = Depends(get_db), user: dict = Depends(re
 @router.get("/reportes/liquidacion", response_model=list[VwLiquidacionRow])
 def reportes_liquidacion(desde: date | None = Query(None), hasta: date | None = Query(None),
                          db: Session = Depends(get_db), user: dict = Depends(requiere_rol(*_ROL))):
-    rows = db.execute(text("""
-        SELECT * FROM vw_liquidacion
-        WHERE (:desde IS NULL OR fecha >= :desde) AND (:hasta IS NULL OR fecha <= :hasta)
-        ORDER BY fecha
-    """), {"desde": desde, "hasta": hasta}).mappings().all()
+    q = "SELECT * FROM vw_liquidacion"
+    conds, params = [], {}
+    if desde is not None:
+        conds.append("fecha >= :desde")
+        params["desde"] = desde
+    if hasta is not None:
+        conds.append("fecha <= :hasta")
+        params["hasta"] = hasta
+    if conds:
+        q += " WHERE " + " AND ".join(conds)
+    q += " ORDER BY fecha"
+    rows = db.execute(text(q), params).mappings().all()
     return [VwLiquidacionRow(**r) for r in rows]
 
 
@@ -110,3 +126,17 @@ def revision(db: Session = Depends(get_db), user: dict = Depends(requiere_rol(*_
     rp = db.execute(text("SELECT id_repartidor, nombre, calificacion_promedio, total_calificaciones FROM repartidor WHERE en_revision = TRUE ORDER BY calificacion_promedio")).mappings().all()
     return RevisionOut(clientes=[RevisionClienteRow(**x) for x in cl],
                        repartidores=[RevisionRepartidorRow(**x) for x in rp])
+
+
+@router.post("/revision/{tipo}/{id}/resolver", response_model=OkRespuesta)
+def resolver_revision(tipo: Literal["cliente", "repartidor"], id: int,
+                      db: Session = Depends(get_db), user: dict = Depends(requiere_rol(*_ROL))):
+    """Saca un usuario de revisión (limpia en_revision). Suspender usuarios es función del panel admin."""
+    tabla, col = ("cliente", "id_cliente") if tipo == "cliente" else ("repartidor", "id_repartidor")
+    row = db.execute(
+        text(f"UPDATE {tabla} SET en_revision = FALSE WHERE {col} = :id AND en_revision = TRUE RETURNING {col}"),
+        {"id": id}).first()
+    if row is None:
+        raise ErrorAPI("NO_ENCONTRADO", "Usuario no está en revisión.", 404)
+    db.commit()
+    return OkRespuesta()

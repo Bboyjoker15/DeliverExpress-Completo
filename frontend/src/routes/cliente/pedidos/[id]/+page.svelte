@@ -3,21 +3,25 @@
 	import { goto } from '$app/navigation';
 	import { usd } from '$lib/formato.js';
 	import { mostrarToast } from '$lib/toast.js';
-	import { sesion } from '$lib/stores/sesion.js';
 	import EstadoBadge from '$lib/componentes/EstadoBadge.svelte';
 	import LineaEstados from '$lib/componentes/LineaEstados.svelte';
 	import Estrellas from '$lib/componentes/Estrellas.svelte';
-	import {
-		obtenerPedidoPorId,
-		marcarCalificacionHecha,
-		actualizarEstadoPedido,
-		cancelarPedido
-	} from '$lib/stores/pedidos.js';
-	import { agregarResena } from '$lib/stores/resenas.js';
+	import { obtenerPedidoPorId, calificarPedido } from '$lib/stores/pedidos.js';
+	import { escuchar } from '$lib/ws.js';
+
+	const IMAGEN_DEFECTO = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80';
 
 	const idPedido = Number(page.params.id);
 	const pedidoStore = obtenerPedidoPorId(idPedido);
 	let pedido = $derived($pedidoStore);
+
+	// Actualizacion en vivo: cuando llega un evento WS de este pedido, se
+	// refresca el detalle completo desde la API.
+	$effect(() => {
+		return escuchar('pedido', (datos) => {
+			if (datos?.id_pedido === idPedido) pedidoStore.refrescar();
+		});
+	});
 
 	// Calificaciones
 	let puntajeRepartidor = $state(5);
@@ -25,21 +29,8 @@
 	let puntajeRestaurante = $state(5);
 	let comentarioRestaurante = $state('');
 
-	// Modales
-	let modalCancelar = $state(false);
-	let modalEnProceso = $state(false);
+	// Modal
 	let modalLlamada = $state(false);
-	let motivoCancelar = $state('');
-
-	const REPARTIDOR_SIMULADO = {
-		id_repartidor: 99,
-		nombre: 'Alejandro Morales',
-		telefono: '+58 412 889-1234',
-		tipo_vehiculo: 'Moto Empire Keeway 150cc',
-		calificacion_promedio: 4.9,
-		latitud_actual: 8.295,
-		longitud_actual: -62.735
-	};
 
 	function formatearFecha(iso) {
 		if (!iso) return '—';
@@ -51,62 +42,21 @@
 		});
 	}
 
-	function enviarCalificacion(tipo) {
-		const esRepartidor = tipo === 'cliente_a_repartidor';
-
-		if (esRepartidor) {
-			marcarCalificacionHecha(idPedido, tipo);
-			mostrarToast('exito', '¡Gracias por calificar al repartidor!');
-		} else {
-			agregarResena(pedido.id_restaurante, {
-				cliente_nombre: $sesion.nombre || 'Cliente',
-				puntaje: puntajeRestaurante,
-				comentario: comentarioRestaurante
-			});
-			marcarCalificacionHecha(idPedido, tipo);
-			mostrarToast('exito', '¡Gracias por calificar al restaurante!');
-			comentarioRestaurante = '';
-			puntajeRestaurante = 5;
+	async function enviarCalificacion(tipo) {
+		try {
+			if (tipo === 'cliente_a_repartidor') {
+				await calificarPedido(idPedido, tipo, puntajeRepartidor, comentarioRepartidor || null);
+				mostrarToast('exito', '¡Gracias por calificar al repartidor!');
+			} else {
+				await calificarPedido(idPedido, tipo, puntajeRestaurante, comentarioRestaurante || null);
+				mostrarToast('exito', '¡Gracias por calificar al restaurante!');
+				comentarioRestaurante = '';
+				puntajeRestaurante = 5;
+			}
+			pedidoStore.refrescar();
+		} catch (err) {
+			mostrarToast('error', err.message || 'No se pudo enviar la calificación');
 		}
-	}
-
-	function avanzarEstado() {
-		if (!pedido) return;
-
-		const mapa = {
-			1: { id: 2, codigo: 'en_preparacion', nombre: 'En preparación', asignarRepartidor: false },
-			2: { id: 3, codigo: 'listo_para_retirar', nombre: 'Listo para retirar', asignarRepartidor: false },
-			3: { id: 4, codigo: 'en_camino', nombre: 'En camino', asignarRepartidor: true },
-			4: { id: 5, codigo: 'entregado', nombre: 'Entregado', asignarRepartidor: false }
-		};
-
-		const next = mapa[pedido.id_estado];
-		if (!next) return;
-
-		actualizarEstadoPedido(idPedido, next.codigo, next.nombre, next.id, {
-			repartidor: next.asignarRepartidor ? REPARTIDOR_SIMULADO : undefined
-		});
-
-		mostrarToast('info', `Pedido actualizado a "${next.nombre}"`);
-	}
-
-	function intentarCancelar() {
-		if (!pedido) return;
-		if (pedido.id_estado === 1) {
-			modalCancelar = true;
-		} else if ([2, 3].includes(pedido.id_estado)) {
-			modalEnProceso = true;
-		}
-	}
-
-	function confirmarCancelacion() {
-		if (!motivoCancelar.trim()) {
-			mostrarToast('error', 'Escribe el motivo de la cancelación');
-			return;
-		}
-		cancelarPedido(idPedido, motivoCancelar);
-		modalCancelar = false;
-		mostrarToast('exito', 'Pedido cancelado');
 	}
 
 	function abrirLlamada() {
@@ -167,31 +117,7 @@
 					</div>
 				</div>
 
-				<div class="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-gray-100">
-					{#if [1, 2, 3, 4].includes(pedido.id_estado)}
-						<button
-							type="button"
-							onclick={avanzarEstado}
-							class="text-xs font-semibold text-primary-container hover:underline flex items-center gap-1"
-						>
-							<span class="material-symbols-outlined text-[16px]">fast_forward</span>
-							Simular siguiente estado (demo)
-						</button>
-					{/if}
-
-					{#if [1, 2, 3].includes(pedido.id_estado)}
-						<button
-							type="button"
-							onclick={intentarCancelar}
-							class="text-xs font-semibold text-red-600 hover:underline flex items-center gap-1 ml-auto"
-						>
-							<span class="material-symbols-outlined text-[16px]">cancel</span>
-							Cancelar pedido
-						</button>
-					{/if}
-				</div>
-
-				{#if [2, 3].includes(pedido.id_estado)}
+				{#if [1, 2, 3].includes(pedido.id_estado)}
 					<div class="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-start gap-2">
 						<span class="material-symbols-outlined text-yellow-700 text-[20px] shrink-0">info</span>
 						<p class="text-xs text-yellow-900">
@@ -274,11 +200,11 @@
 			<article class="bg-white rounded-xl p-5 shadow-sm">
 				<div class="flex items-center justify-between mb-4">
 					<div class="flex items-center gap-2">
-						<img src={pedido.imagen} alt={pedido.nombre} class="w-10 h-10 object-cover rounded-lg" />
-						<h2 class="text-base font-bold text-on-surface">{pedido.nombre}</h2>
+						<img src={IMAGEN_DEFECTO} alt={pedido.restaurante.nombre} class="w-10 h-10 object-cover rounded-lg" />
+						<h2 class="text-base font-bold text-on-surface">{pedido.restaurante.nombre}</h2>
 					</div>
 					<a
-						href="/cliente/restaurante/{pedido.id_restaurante}"
+						href="/cliente/restaurante/{pedido.restaurante.id_restaurante}"
 						class="text-xs font-semibold text-primary-container hover:underline"
 					>
 						Ver menú
@@ -380,7 +306,7 @@
 					{#if !pedido.calificaciones_hechas?.includes('cliente_a_restaurante')}
 						<div class="bg-surface-container-low rounded-xl p-4">
 							<p class="text-sm font-semibold text-on-surface mb-3">
-								¿Qué tal estuvo la comida de {pedido.nombre}?
+								¿Qué tal estuvo la comida de {pedido.restaurante.nombre}?
 							</p>
 							<Estrellas bind:valor={puntajeRestaurante} tamaño="lg" />
 							<textarea
@@ -429,72 +355,6 @@
 			</button>
 		</div>
 	</div>
-
-	<!-- MODAL: Cancelar -->
-	{#if modalCancelar}
-		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-			<div class="w-full max-w-md bg-white rounded-2xl p-6 shadow-2xl">
-				<div class="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mb-4">
-					<span class="material-symbols-outlined text-[24px]">warning</span>
-				</div>
-				<h3 class="text-lg font-bold text-on-surface mb-2">¿Cancelar este pedido?</h3>
-				<p class="text-sm text-on-surface-variant mb-4">
-					El pedido aún no ha entrado a preparación. Escribe el motivo para continuar.
-				</p>
-				<textarea
-					bind:value={motivoCancelar}
-					placeholder="Ej: Me equivoqué en la dirección..."
-					rows="3"
-					class="w-full p-3 rounded-lg bg-surface-container-low border border-gray-200 text-sm resize-none focus:outline-none focus:border-primary-container focus:ring-2 focus:ring-primary-container/20"
-				></textarea>
-				<div class="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 mt-5">
-					<button
-						type="button"
-						onclick={() => (modalCancelar = false)}
-						class="w-full sm:w-auto px-5 py-2.5 rounded-lg text-on-surface hover:bg-surface-container font-semibold text-sm transition-colors"
-					>
-						No cancelar
-					</button>
-					<button
-						type="button"
-						onclick={confirmarCancelacion}
-						class="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-sm transition-colors"
-					>
-						Sí, cancelar pedido
-					</button>
-				</div>
-			</div>
-		</div>
-	{/if}
-
-	<!-- MODAL: En proceso -->
-	{#if modalEnProceso}
-		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-			<div class="w-full max-w-md bg-white rounded-2xl p-6 shadow-2xl">
-				<div class="w-12 h-12 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center mb-4">
-					<span class="material-symbols-outlined text-[24px]">support_agent</span>
-				</div>
-				<h3 class="text-lg font-bold text-on-surface mb-2">Tu orden está en proceso</h3>
-				<p class="text-sm text-on-surface-variant mb-4">
-					El restaurante ya comenzó a preparar tu pedido. Para cancelarlo necesitas contactar a soporte:
-				</p>
-				<div class="bg-surface-container-low rounded-lg p-3 flex items-center gap-3 mb-4">
-					<span class="material-symbols-outlined text-primary-container text-[24px]">call</span>
-					<div>
-						<p class="text-xs text-on-surface-variant">Línea de soporte 24/7</p>
-						<p class="text-base font-bold text-on-surface">+58 800-DELIVER</p>
-					</div>
-				</div>
-				<button
-					type="button"
-					onclick={() => (modalEnProceso = false)}
-					class="w-full h-11 bg-surface-container text-on-surface font-semibold text-sm rounded-lg hover:bg-surface-container-high transition-colors"
-				>
-					Entendido
-				</button>
-			</div>
-		</div>
-	{/if}
 
 	<!-- MODAL: Llamar al repartidor (solo copiar) -->
 	{#if modalLlamada && pedido?.repartidor}

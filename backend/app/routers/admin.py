@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.errores import ErrorAPI
 from app.esquemas import (
-    CategoriaAdminIn, CategoriaAdminOut, CoordinadorAdminIn, CoordinadorAdminOut,
+    CategoriaAdminIn, CategoriaAdminOut, CoordinadorAdminIn, CoordinadorAdminListOut, CoordinadorAdminOut,
     ParametroIn, ParametroOut, RepartidorAdminIn, RepartidorAdminOut, RepartidorAdminPutIn,
     RestauranteAdminIn, RestauranteAdminOut, RestauranteAdminPutIn, TasaBcvIn, TasaBcvOut,
     TarifaAdminIn, TarifaAdminOut, UsuarioActivoIn, ZonaAdminIn, ZonaAdminOut, OkRespuesta
@@ -205,6 +205,16 @@ def crear_coordinador(datos: CoordinadorAdminIn, db: Session = Depends(get_db), 
         row = db.execute(text("INSERT INTO coordinador (id_usuario, nombre, telefono) VALUES (:u, :n, :t) RETURNING id_coordinador, id_usuario, nombre, telefono"),
                          {"u": id_usuario, "n": datos.nombre, "t": datos.telefono}).mappings().one()
     return CoordinadorAdminOut(**row)
+
+
+@router.get("/coordinadores", response_model=list[CoordinadorAdminListOut])
+def listar_coordinadores(db: Session = Depends(get_db), user: dict = Depends(requiere_rol("admin"))):
+    rows = db.execute(text("""
+        SELECT c.id_coordinador, c.id_usuario, c.nombre, u.email, c.telefono, u.activo
+        FROM coordinador c JOIN usuario u ON u.id_usuario = c.id_usuario
+        ORDER BY c.id_coordinador
+    """)).mappings().all()
+    return [CoordinadorAdminListOut(**r) for r in rows]
 
 
 @router.put("/usuarios/{id}/activo", response_model=OkRespuesta)

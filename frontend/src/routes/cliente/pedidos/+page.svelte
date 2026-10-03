@@ -2,7 +2,11 @@
 	import { goto } from '$app/navigation';
 	import { usd } from '$lib/formato.js';
 	import EstadoBadge from '$lib/componentes/EstadoBadge.svelte';
-	import { pedidos, filtrarPorCategoria, conteos } from '$lib/stores/pedidos.js';
+	import { pedidos, cargarPedidos, filtrarPorCategoria, conteos } from '$lib/stores/pedidos.js';
+
+	const IMAGEN_DEFECTO = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80';
+
+	cargarPedidos();
 
 	let filtroActivo = $state('todos');
 
@@ -32,12 +36,6 @@
 			', ' +
 			d.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })
 		);
-	}
-
-	function resumenProductos(pedido) {
-		const partes = pedido.detalle.slice(0, 2).map((d) => `${d.cantidad}x ${d.nombre}`);
-		if (pedido.detalle.length > 2) partes.push('...');
-		return partes.join(', ');
 	}
 
 	function irAlPedido(id) {
@@ -98,21 +96,18 @@
 					>
 						<div class="relative w-16 h-16 rounded-full overflow-hidden shrink-0 bg-surface-container">
 							<img
-								src={pedido.imagen}
-								alt={pedido.nombre}
+								src={IMAGEN_DEFECTO}
+								alt={pedido.restaurante}
 								class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
 							/>
 						</div>
 
 						<div class="flex-1 min-w-0">
 							<div class="flex items-center gap-2 flex-wrap mb-0.5">
-								<h3 class="text-base font-bold text-on-surface truncate">{pedido.nombre}</h3>
+								<h3 class="text-base font-bold text-on-surface truncate">{pedido.restaurante}</h3>
 								<span class="text-[10px] text-on-surface-variant">#{pedido.id_pedido}</span>
 							</div>
 							<p class="text-xs text-on-surface-variant truncate">{formatearFecha(pedido.fecha_creacion)}</p>
-							<p class="text-xs text-on-surface-variant/80 truncate mt-0.5">
-								{resumenProductos(pedido)}
-							</p>
 						</div>
 
 						<div class="flex items-center gap-3 shrink-0">
@@ -120,7 +115,7 @@
 								<EstadoBadge codigo={pedido.estado_codigo} />
 								<span
 									class="text-base font-bold
-										{pedido.id_estado === 6 ? 'text-on-surface-variant line-through' : 'text-on-surface'}"
+										{pedido.estado_codigo === 'cancelado' ? 'text-on-surface-variant line-through' : 'text-on-surface'}"
 								>
 									{usd(pedido.total)}
 								</span>

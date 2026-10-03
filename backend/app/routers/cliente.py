@@ -10,13 +10,23 @@ from app.errores import ErrorAPI
 from app.esquemas import (
     CalificarIn, CalificarOut, CotizarIn, CotizarOut, CrearPedidoIn,
     DatosFiscalesIn, DireccionCreadaOut, DireccionIn, DireccionOut, HorarioItem,
-    PedidoCompleto, PedidoResumenOut, ProductoClienteOut, RecomendacionOut,
-    RestauranteDetalleOut, RestauranteListaOut, OkRespuesta,
+    PedidoCompleto, PedidoResumenOut, PerfilClienteOut, ProductoClienteOut,
+    RecomendacionOut, ResenaOut, RestauranteDetalleOut, RestauranteListaOut, OkRespuesta,
 )
 from app.seguridad import requiere_rol
 from app.services.pedido import armar_pedido_completo
 
 router = APIRouter(prefix="/api/cliente", tags=["cliente"])
+
+
+@router.get("/perfil", response_model=PerfilClienteOut)
+def mi_perfil(db: Session = Depends(get_db), user: dict = Depends(requiere_rol("cliente"))):
+    row = db.execute(text("""
+        SELECT c.nombre, u.email, c.telefono, c.cedula_rif, c.calificacion_promedio, c.en_revision
+        FROM cliente c JOIN usuario u ON u.id_usuario = c.id_usuario
+        WHERE c.id_cliente = :c
+    """), {"c": user["id_perfil"]}).mappings().one()
+    return PerfilClienteOut(**row)
 
 
 @router.get("/direcciones", response_model=list[DireccionOut])
@@ -86,6 +96,20 @@ def productos_restaurante(id: int, db: Session = Depends(get_db),
         FROM producto WHERE id_restaurante = :id AND disponible = TRUE ORDER BY id_producto
     """), {"id": id}).mappings().all()
     return [ProductoClienteOut(**r) for r in rows]
+
+
+@router.get("/restaurantes/{id}/resenas", response_model=list[ResenaOut])
+def resenas_restaurante(id: int, db: Session = Depends(get_db),
+                        user: dict = Depends(requiere_rol("cliente"))):
+    rows = db.execute(text("""
+        SELECT cal.id_calificacion AS id, c.nombre AS cliente_nombre, cal.puntaje, cal.comentario, cal.fecha
+        FROM calificacion cal
+        JOIN pedido p ON p.id_pedido = cal.id_pedido
+        JOIN cliente c ON c.id_cliente = p.id_cliente
+        WHERE p.id_restaurante = :id AND cal.tipo = 'cliente_a_restaurante'
+        ORDER BY cal.fecha DESC LIMIT 50
+    """), {"id": id}).mappings().all()
+    return [ResenaOut(**r) for r in rows]
 
 
 @router.post("/pedidos/cotizar", response_model=CotizarOut)

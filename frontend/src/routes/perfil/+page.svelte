@@ -1,10 +1,22 @@
 <script>
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { sesion, RUTA_POR_ROL } from '$lib/stores/sesion.js';
 	import { mostrarToast } from '$lib/toast.js';
-	import { ZONAS } from '$lib/mock/zonas.js';
+	import { api } from '$lib/api.js';
 	import { direcciones, agregarDireccion, marcarPrincipal } from '$lib/stores/direcciones.js';
 	import MapaSelector from '$lib/componentes/MapaSelector.svelte';
+
+	// Zonas reales (catálogo público, sin autenticación).
+	let zonas = $state([]);
+
+	onMount(async () => {
+		try {
+			zonas = await api('/api/zonas');
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
+	});
 
 	// Dirección principal actual (reactiva)
 	let direccionActual = $derived($direcciones.find((d) => d.principal) || $direcciones[0]);
@@ -40,7 +52,7 @@
 
 	function irANuevaDireccion() {
 		nuevaDireccion = {
-			id_zona: ZONAS[0]?.id_zona || 1,
+			id_zona: zonas[0]?.id_zona || 1,
 			direccion: '',
 			referencia: '',
 			latitud: 8.295,
@@ -55,7 +67,7 @@
 			mostrarToast('error', 'Escribe la dirección');
 			return;
 		}
-		const zona = ZONAS.find((z) => z.id_zona === nuevaDireccion.id_zona);
+		const zona = zonas.find((z) => z.id_zona === nuevaDireccion.id_zona);
 		agregarDireccion({
 			...nuevaDireccion,
 			zona: zona?.nombre || ''
@@ -260,7 +272,7 @@
 								bind:value={nuevaDireccion.id_zona}
 								class="w-full h-11 bg-white text-on-surface text-sm rounded-lg px-3.5 border border-gray-200 focus:outline-none focus:border-primary-container"
 							>
-								{#each ZONAS as z (z.id_zona)}
+								{#each zonas as z (z.id_zona)}
 									<option value={z.id_zona}>{z.nombre}</option>
 								{/each}
 							</select>

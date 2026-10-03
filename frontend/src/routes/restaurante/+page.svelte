@@ -3,41 +3,49 @@
 	import { sesion } from '$lib/stores/sesion.js';
 	import { usd } from '$lib/formato.js';
 	import EstadoBadge from '$lib/componentes/EstadoBadge.svelte';
-	import { PEDIDOS } from '$lib/mock/pedidos.js';
 	import { mostrarToast } from '$lib/toast.js';
+	import { api } from '$lib/api.js';
+	import { escuchar } from '$lib/ws.js';
 
-	// Cuando el backend esté listo: GET /api/restaurante/pedidos?activos=true
-	const ID_RESTAURANTE = 1;
-
-	let pedidos = $state([...PEDIDOS]);
+	let pedidos = $state([]);
 	let modalCancelar = $state(false);
 	let pedidoACancelar = $state(null);
 	let motivoCancelar = $state('');
 
-	let colRecibido = $derived(
-		pedidos.filter((p) => p.id_estado === 1 && p.id_restaurante === ID_RESTAURANTE)
-	);
-	let colPreparacion = $derived(
-		pedidos.filter((p) => p.id_estado === 2 && p.id_restaurante === ID_RESTAURANTE)
-	);
-	let colListo = $derived(
-		pedidos.filter((p) => p.id_estado === 3 && p.id_restaurante === ID_RESTAURANTE)
-	);
+	async function cargarPedidos() {
+		pedidos = await api('/api/restaurante/pedidos?activos=true');
+	}
+
+	cargarPedidos();
+
+	$effect(() => {
+		return escuchar('pedido', (datos) => {
+			if (datos?.id_restaurante === $sesion.id_perfil) cargarPedidos();
+		});
+	});
+
+	let colRecibido = $derived(pedidos.filter((p) => p.id_estado === 1));
+	let colPreparacion = $derived(pedidos.filter((p) => p.id_estado === 2));
+	let colListo = $derived(pedidos.filter((p) => p.id_estado === 3));
 
 	let totalActivos = $derived(colRecibido.length + colPreparacion.length + colListo.length);
 
-	function aceptar(p) {
-		pedidos = pedidos.map((x) =>
-			x.id_pedido === p.id_pedido ? { ...x, id_estado: 2, estado_codigo: 'en_preparacion' } : x
-		);
+	async function aceptar(p) {
+		try {
+			await api(`/api/restaurante/pedidos/${p.id_pedido}/aceptar`, { metodo: 'POST' });
+			await cargarPedidos();
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 
-	function marcarListo(p) {
-		pedidos = pedidos.map((x) =>
-			x.id_pedido === p.id_pedido
-				? { ...x, id_estado: 3, estado_codigo: 'listo_para_retirar' }
-				: x
-		);
+	async function marcarListo(p) {
+		try {
+			await api(`/api/restaurante/pedidos/${p.id_pedido}/listo`, { metodo: 'POST' });
+			await cargarPedidos();
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 
 	function abrirCancelar(p) {
@@ -46,24 +54,22 @@
 		modalCancelar = true;
 	}
 
-	function confirmarCancelar() {
+	async function confirmarCancelar() {
 		if (!motivoCancelar.trim()) return;
 
-		pedidos = pedidos.map((x) =>
-			x.id_pedido === pedidoACancelar.id_pedido
-				? {
-						...x,
-						id_estado: 6,
-						estado_codigo: 'cancelado',
-						estado_nombre: 'Cancelado',
-						motivo_cancelacion: motivoCancelar
-					}
-				: x
-		);
-
-		modalCancelar = false;
-		pedidoACancelar = null;
-		mostrarToast('exito', 'Pedido cancelado, el cliente fue notificado');
+		try {
+			await api(`/api/restaurante/pedidos/${pedidoACancelar.id_pedido}/cancelar`, {
+				metodo: 'POST',
+				cuerpo: { motivo: motivoCancelar }
+			});
+			await cargarPedidos();
+			mostrarToast('exito', 'Pedido cancelado, el cliente fue notificado');
+		} catch (err) {
+			mostrarToast('error', err.message);
+		} finally {
+			modalCancelar = false;
+			pedidoACancelar = null;
+		}
 	}
 
 	function formatearHora(iso) {

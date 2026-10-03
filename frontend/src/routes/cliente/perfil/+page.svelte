@@ -1,10 +1,13 @@
 <script>
 	import { sesion } from '$lib/stores/sesion.js';
 	import { mostrarToast } from '$lib/toast.js';
-	import { ZONAS } from '$lib/mock/zonas.js';
-	import { direcciones, agregarDireccion, marcarPrincipal } from '$lib/stores/direcciones.js';
+	import { direcciones, cargarDirecciones, agregarDireccion, marcarPrincipal } from '$lib/stores/direcciones.js';
 	import MapaSelector from '$lib/componentes/MapaSelector.svelte';
-	import { obtenerPerfilMock, actualizarDatosFiscalesMock } from '$lib/mock/perfil.js';
+	import { api } from '$lib/api.js';
+
+	let ZONAS = $state([]);
+	cargarDirecciones();
+	api('/api/zonas').then((z) => (ZONAS = z));
 
 	// Dirección principal actual
 	let direccionActual = $derived($direcciones.find((d) => d.principal) || $direcciones[0]);
@@ -37,9 +40,9 @@
 	async function cargarPerfil() {
 		cargando = true;
 		try {
-			perfil = await obtenerPerfilMock();
+			perfil = await api('/api/cliente/perfil');
 			telefono = perfil.telefono;
-			cedula = perfil.cedula_rif;
+			cedula = perfil.cedula_rif ?? '';
 		} catch (err) {
 			mostrarToast('error', err.message);
 		} finally {
@@ -83,7 +86,8 @@
 
 		guardando = true;
 		try {
-			perfil = await actualizarDatosFiscalesMock({ telefono, cedula_rif: cedula });
+			await api('/api/cliente/datos-fiscales', { metodo: 'PUT', cuerpo: { cedula_rif: cedula } });
+			perfil = { ...perfil, telefono, cedula_rif: cedula };
 			mostrarToast('exito', 'Datos fiscales actualizados con éxito');
 		} catch (err) {
 			mostrarToast('error', err.message);
@@ -126,18 +130,18 @@
 		pasoModal = 'nueva';
 	}
 
-	function guardarNuevaDireccion() {
+	async function guardarNuevaDireccion() {
 		if (!nuevaDireccion.direccion.trim()) {
 			mostrarToast('error', 'Escribe la dirección');
 			return;
 		}
-		const zona = ZONAS.find((z) => z.id_zona === nuevaDireccion.id_zona);
-		agregarDireccion({
-			...nuevaDireccion,
-			zona: zona?.nombre || ''
-		});
-		mostrarToast('exito', 'Dirección agregada');
-		pasoModal = 'lista';
+		try {
+			await agregarDireccion(nuevaDireccion);
+			mostrarToast('exito', 'Dirección agregada');
+			pasoModal = 'lista';
+		} catch (err) {
+			mostrarToast('error', err.message || 'No se pudo agregar la dirección');
+		}
 	}
 
 	function seleccionarPrincipal(id) {

@@ -42,13 +42,21 @@ def ver_factura(id_factura: int, db: Session = Depends(get_db), user: dict = Dep
 def listar_facturas(tipo: str | None = Query(None), desde: date | None = Query(None),
                     hasta: date | None = Query(None), db: Session = Depends(get_db),
                     user: dict = Depends(requiere_rol(*_ROL))):
-    rows = db.execute(text("""
-        SELECT * FROM vw_facturas
-        WHERE (:tipo IS NULL OR tipo = :tipo)
-          AND (:desde IS NULL OR fecha_emision >= :desde::date)
-          AND (:hasta IS NULL OR fecha_emision < (:hasta::date + interval '1 day'))
-        ORDER BY fecha_emision DESC
-    """), {"tipo": tipo, "desde": desde, "hasta": hasta}).mappings().all()
+    q = "SELECT * FROM vw_facturas"
+    conds, params = [], {}
+    if tipo is not None:
+        conds.append("tipo = :tipo")
+        params["tipo"] = tipo
+    if desde is not None:
+        conds.append("fecha_emision >= :desde")
+        params["desde"] = desde
+    if hasta is not None:
+        conds.append("fecha_emision < (CAST(:hasta AS DATE) + interval '1 day')")
+        params["hasta"] = hasta
+    if conds:
+        q += " WHERE " + " AND ".join(conds)
+    q += " ORDER BY fecha_emision DESC"
+    rows = db.execute(text(q), params).mappings().all()
     return [VwFacturasRow(**r) for r in rows]
 
 
@@ -62,12 +70,18 @@ def anular(id_factura: int, datos: AnularIn, db: Session = Depends(get_db), user
 @router.get("/api/coordinador/libro-ventas", response_model=list[VwLibroVentasRow])
 def libro_ventas(desde: date | None = Query(None), hasta: date | None = Query(None),
                  db: Session = Depends(get_db), user: dict = Depends(requiere_rol(*_ROL))):
-    rows = db.execute(text("""
-        SELECT * FROM vw_libro_ventas
-        WHERE (:desde IS NULL OR fecha_emision >= :desde::date)
-          AND (:hasta IS NULL OR fecha_emision < (:hasta::date + interval '1 day'))
-        ORDER BY fecha_emision
-    """), {"desde": desde, "hasta": hasta}).mappings().all()
+    q = "SELECT * FROM vw_libro_ventas"
+    conds, params = [], {}
+    if desde is not None:
+        conds.append("fecha_emision >= :desde")
+        params["desde"] = desde
+    if hasta is not None:
+        conds.append("fecha_emision < (CAST(:hasta AS DATE) + interval '1 day')")
+        params["hasta"] = hasta
+    if conds:
+        q += " WHERE " + " AND ".join(conds)
+    q += " ORDER BY fecha_emision"
+    rows = db.execute(text(q), params).mappings().all()
     return [VwLibroVentasRow(**r) for r in rows]
 
 
@@ -80,14 +94,22 @@ def resumen_iva(db: Session = Depends(get_db), user: dict = Depends(requiere_rol
 @router.get("/api/coordinador/liquidaciones", response_model=list[LiquidacionAdminRow])
 def liquidaciones(desde: date | None = Query(None), hasta: date | None = Query(None),
                   db: Session = Depends(get_db), user: dict = Depends(requiere_rol(*_ROL))):
-    rows = db.execute(text("""
+    q = """
         SELECT l.id_liquidacion, l.numero, l.id_repartidor, rp.nombre AS repartidor, l.periodo_desde, l.periodo_hasta,
                l.viajes, l.total_envios, l.total_propinas, l.total, l.fecha_emision
         FROM liquidacion_repartidor l JOIN repartidor rp ON rp.id_repartidor = l.id_repartidor
-        WHERE (:desde IS NULL OR l.fecha_emision >= :desde::date)
-          AND (:hasta IS NULL OR l.fecha_emision < (:hasta::date + interval '1 day'))
-        ORDER BY l.fecha_emision DESC
-    """), {"desde": desde, "hasta": hasta}).mappings().all()
+    """
+    conds, params = [], {}
+    if desde is not None:
+        conds.append("l.fecha_emision >= :desde")
+        params["desde"] = desde
+    if hasta is not None:
+        conds.append("l.fecha_emision < (CAST(:hasta AS DATE) + interval '1 day')")
+        params["hasta"] = hasta
+    if conds:
+        q += " WHERE " + " AND ".join(conds)
+    q += " ORDER BY l.fecha_emision DESC"
+    rows = db.execute(text(q), params).mappings().all()
     return [LiquidacionAdminRow(**r) for r in rows]
 
 

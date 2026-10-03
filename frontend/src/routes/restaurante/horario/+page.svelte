@@ -1,8 +1,23 @@
 <script>
 	import { mostrarToast } from '$lib/toast.js';
-	import { horarios, actualizarHorarios, resetearHorarios } from '$lib/stores/horarios.js';
-	import { NOMBRES_DIAS, ORDEN_DIAS } from '$lib/mock/horarios.js';
+	import { horarios, cargarHorarios, actualizarHorarios, resetearHorarios } from '$lib/stores/horarios.js';
 	import SelectorHora from '$lib/componentes/SelectorHora.svelte';
+
+	// dia_semana: 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
+	const NOMBRES_DIAS = {
+		0: 'Domingo',
+		1: 'Lunes',
+		2: 'Martes',
+		3: 'Miércoles',
+		4: 'Jueves',
+		5: 'Viernes',
+		6: 'Sábado'
+	};
+
+	// Orden para mostrar: Lunes primero
+	const ORDEN_DIAS = [1, 2, 3, 4, 5, 6, 0];
+
+	cargarHorarios();
 
 	let guardando = $state(false);
 
@@ -45,7 +60,7 @@
 		mostrarToast('info', 'Valores restablecidos');
 	}
 
-	function guardar() {
+	async function guardar() {
 		const invalido = locales.some(
 			(h) =>
 				h.abierto &&
@@ -57,11 +72,14 @@
 		}
 
 		guardando = true;
-		setTimeout(() => {
-			actualizarHorarios(locales.map((h) => ({ ...h })));
-			guardando = false;
+		try {
+			await actualizarHorarios(locales.map((h) => ({ ...h })));
 			mostrarToast('exito', 'Horario actualizado y sincronizado');
-		}, 500);
+		} catch (err) {
+			mostrarToast('error', err.message || 'No se pudo guardar el horario');
+		} finally {
+			guardando = false;
+		}
 	}
 </script>
 

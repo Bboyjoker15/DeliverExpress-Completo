@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { iniciarSesion, RUTA_POR_ROL } from '$lib/stores/sesion.js';
 	import { mostrarToast } from '$lib/toast.js';
+	import { api } from '$lib/api.js';
 
 	let nombre = $state('');
 	let email = $state('');
@@ -79,14 +80,12 @@
 		cargando = true;
 
 		try {
-			await new Promise((r) => setTimeout(r, 700));
+			await api('/api/auth/registro-cliente', {
+				metodo: 'POST',
+				cuerpo: { email, password, nombre, telefono, cedula_rif: cedula || null }
+			});
 
-			const data = {
-				token: 'fake-jwt-cliente-nuevo',
-				rol: 'cliente',
-				id_perfil: 99,
-				nombre
-			};
+			const data = await api('/api/auth/login', { metodo: 'POST', cuerpo: { email, password } });
 
 			iniciarSesion(data);
 			mostrarToast('exito', `¡Bienvenido, ${nombre}!`);

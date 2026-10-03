@@ -8,17 +8,7 @@
 	import EstadoBadge from '$lib/componentes/EstadoBadge.svelte';
 	import Estrellas from '$lib/componentes/Estrellas.svelte';
 	import Mapa from '$lib/componentes/MapaCoordinador.svelte';
-	import {
-		obtenerYoMock,
-		obtenerOfertaPendienteMock,
-		obtenerPedidoActualMock,
-		responderOfertaMock,
-		cambiarDisponibilidadMock,
-		retirarPedidoMock,
-		entregarPedidoMock,
-		calificarClienteMock,
-		enviarUbicacionMock
-	} from '$lib/mock/repartidores.js';
+	import { api } from '$lib/api.js';
 
 	// ══════════════════════════════════════════════
 	// ESTADO
@@ -44,9 +34,9 @@
 	async function cargarTodo() {
 		cargando = true;
 		try {
-			yo = await obtenerYoMock();
-			pedidoActual = await obtenerPedidoActualMock();
-			oferta = await obtenerOfertaPendienteMock();
+			yo = await api('/api/repartidor/yo');
+			pedidoActual = await api('/api/repartidor/pedido-actual');
+			oferta = await api('/api/repartidor/oferta-pendiente');
 			if (oferta) iniciarCountdown(oferta.segundos_restantes);
 		} catch (err) {
 			mostrarToast('error', err.message || 'Error al cargar');
@@ -72,14 +62,16 @@
 	const offOferta = escuchar('oferta', async (datos) => {
 		if (datos.id_repartidor !== yo?.id_repartidor) return;
 		if (datos.respuesta && datos.respuesta !== 'pendiente') return;
-		oferta = datos;
-		iniciarCountdown(datos.segundos_restantes ?? 30);
-		mostrarToast('info', '¡Nueva oferta de pedido!');
+		oferta = await api('/api/repartidor/oferta-pendiente');
+		if (oferta) {
+			iniciarCountdown(oferta.segundos_restantes);
+			mostrarToast('info', '¡Nueva oferta de pedido!');
+		}
 	});
 
 	const offPedido = escuchar('pedido', async (datos) => {
 		if (pedidoActual && datos.id_pedido === pedidoActual.id_pedido) {
-			pedidoActual = await obtenerPedidoActualMock();
+			pedidoActual = await api('/api/repartidor/pedido-actual');
 		}
 	});
 
@@ -106,7 +98,7 @@
 		if (!yo) return;
 		const nuevo = yo.disponibilidad === 'libre' ? 'desconectado' : 'libre';
 		try {
-			await cambiarDisponibilidadMock(nuevo);
+			await api('/api/repartidor/disponibilidad', { metodo: 'PUT', cuerpo: { disponibilidad: nuevo } });
 			yo.disponibilidad = nuevo;
 			mostrarToast('exito', nuevo === 'libre' ? 'Estás disponible' : 'Te desconectaste');
 		} catch (err) {
@@ -120,9 +112,12 @@
 	async function responderOferta(respuesta, silencioso = false) {
 		if (!oferta) return;
 		try {
-			await responderOfertaMock(oferta.id_oferta, respuesta);
+			await api(`/api/repartidor/ofertas/${oferta.id_oferta}/responder`, {
+				metodo: 'POST',
+				cuerpo: { acepta: respuesta === 'aceptada' }
+			});
 			if (respuesta === 'aceptada') {
-				pedidoActual = await obtenerPedidoActualMock();
+				pedidoActual = await api('/api/repartidor/pedido-actual');
 				if (!silencioso) mostrarToast('exito', 'Oferta aceptada');
 			} else if (!silencioso) {
 				mostrarToast('info', 'Oferta rechazada');
@@ -143,8 +138,7 @@
 	async function retirar() {
 		if (!pedidoActual) return;
 		try {
-			await retirarPedidoMock(pedidoActual.id_pedido);
-			pedidoActual.estado = 'en_camino';
+			pedidoActual = await api(`/api/repartidor/pedidos/${pedidoActual.id_pedido}/retirado`, { metodo: 'POST' });
 			mostrarToast('exito', 'Pedido retirado. ¡En camino!');
 		} catch (err) {
 			mostrarToast('error', err.message);
@@ -154,8 +148,7 @@
 	async function entregar() {
 		if (!pedidoActual) return;
 		try {
-			await entregarPedidoMock(pedidoActual.id_pedido);
-			pedidoActual.estado = 'entregado';
+			pedidoActual = await api(`/api/repartidor/pedidos/${pedidoActual.id_pedido}/entregado`, { metodo: 'POST' });
 			mostrarCalificarCliente = true;
 			mostrarToast('exito', '¡Pedido entregado!');
 		} catch (err) {
@@ -165,7 +158,10 @@
 
 	async function calificarCliente() {
 		try {
-			await calificarClienteMock(pedidoActual.id_pedido, estrellasCliente, comentarioCliente);
+			await api(`/api/repartidor/pedidos/${pedidoActual.id_pedido}/calificar`, {
+				metodo: 'POST',
+				cuerpo: { puntaje: estrellasCliente, comentario: comentarioCliente || null }
+			});
 			mostrarToast('exito', 'Gracias por calificar');
 			mostrarCalificarCliente = false;
 			estrellasCliente = 5;
@@ -182,13 +178,17 @@
 	// ══════════════════════════════════════════════
 	// UBICACIÓN
 	// ══════════════════════════════════════════════
+	function enviarUbicacion(latitud, longitud) {
+		return api('/api/repartidor/ubicacion', { metodo: 'POST', cuerpo: { latitud, longitud } });
+	}
+
 	function iniciarEnvioUbicacion() {
 		if (!navigator.geolocation) return;
 
 		watchGeo = navigator.geolocation.watchPosition(
 			(pos) => {
 				const { latitude, longitude } = pos.coords;
-				enviarUbicacionMock(latitude, longitude).catch(() => {});
+				enviarUbicacion(latitude, longitude).catch(() => {});
 			},
 			() => {},
 			{ enableHighAccuracy: true, maximumAge: 5000 }
@@ -198,7 +198,7 @@
 			if (!navigator.geolocation) return;
 			navigator.geolocation.getCurrentPosition(
 				(pos) => {
-					enviarUbicacionMock(pos.coords.latitude, pos.coords.longitude).catch(() => {});
+					enviarUbicacion(pos.coords.latitude, pos.coords.longitude).catch(() => {});
 				},
 				() => {},
 				{ enableHighAccuracy: true }
@@ -282,9 +282,7 @@
 								<span class="font-bold text-on-surface">{yo?.calificacion_promedio?.toFixed(1)}</span>
 							</span>
 							<span class="text-on-surface-variant/40">·</span>
-							<span class="text-xs text-on-surface-variant capitalize">{yo?.vehiculo}</span>
-							<span class="text-on-surface-variant/40">·</span>
-							<span class="text-xs text-on-surface-variant">{yo?.zona}</span>
+							<span class="text-xs text-on-surface-variant capitalize">{yo?.tipo_vehiculo}</span>
 						</div>
 					</div>
 				</div>
@@ -318,23 +316,6 @@
 				</button>
 			</section>
 
-			<section class="grid grid-cols-2 gap-3">
-				<div class="bg-white rounded-2xl shadow-sm p-4">
-					<div class="flex items-center gap-2 text-on-surface-variant text-xs">
-						<span class="material-symbols-outlined text-[16px]">route</span>
-						<span>Viajes hoy</span>
-					</div>
-					<p class="text-2xl font-bold text-on-surface mt-1">{yo?.viajes_hoy ?? 0}</p>
-				</div>
-				<div class="bg-white rounded-2xl shadow-sm p-4">
-					<div class="flex items-center gap-2 text-on-surface-variant text-xs">
-						<span class="material-symbols-outlined text-[16px]">payments</span>
-						<span>Ganado hoy</span>
-					</div>
-					<p class="text-2xl font-bold text-primary-container mt-1">{usd(yo?.ganancias_hoy ?? 0)}</p>
-				</div>
-			</section>
-
 			{#if oferta}
 				<section class="bg-gradient-to-br from-primary-container to-primary text-white rounded-2xl shadow-lg p-5 flex flex-col gap-4 relative overflow-hidden">
 					<div class="absolute top-4 right-4 w-14 h-14 rounded-full bg-white/15 backdrop-blur flex items-center justify-center border-2 border-white/40">
@@ -343,23 +324,22 @@
 
 					<div>
 						<p class="text-xs uppercase tracking-wider opacity-80 font-semibold">Nueva oferta</p>
-						<h2 class="text-lg font-bold mt-0.5">Pedido #{oferta.id_pedido}</h2>
+						<h2 class="text-lg font-bold mt-0.5">Pedido #{oferta.pedido.id_pedido}</h2>
 					</div>
 
 					<div class="flex flex-col gap-3 text-sm">
 						<div class="flex items-start gap-2">
 							<span class="material-symbols-outlined text-[18px] mt-0.5">storefront</span>
 							<div>
-								<div class="font-semibold">{oferta.restaurante.nombre}</div>
-								<div class="text-xs opacity-80">{oferta.restaurante.direccion}</div>
+								<div class="font-semibold">{oferta.pedido.restaurante.nombre}</div>
 							</div>
 						</div>
 						<div class="flex items-start gap-2">
 							<span class="material-symbols-outlined text-[18px] mt-0.5">location_on</span>
 							<div>
-								<div class="font-semibold">{oferta.cliente.direccion}</div>
-								{#if oferta.cliente.referencia}
-									<div class="text-xs opacity-80">{oferta.cliente.referencia}</div>
+								<div class="font-semibold">{oferta.pedido.direccion.direccion}</div>
+								{#if oferta.pedido.direccion.referencia}
+									<div class="text-xs opacity-80">{oferta.pedido.direccion.referencia}</div>
 								{/if}
 							</div>
 						</div>
@@ -372,11 +352,11 @@
 						</div>
 						<div>
 							<p class="text-[10px] uppercase opacity-75">Envío</p>
-							<p class="font-bold text-sm">{usd(oferta.costo_envio)}</p>
+							<p class="font-bold text-sm">{usd(oferta.pedido.costo_envio)}</p>
 						</div>
 						<div>
 							<p class="text-[10px] uppercase opacity-75">+ Propina</p>
-							<p class="font-bold text-sm">{usd(oferta.propina)}</p>
+							<p class="font-bold text-sm">{usd(oferta.pedido.propina)}</p>
 						</div>
 					</div>
 
@@ -399,7 +379,7 @@
 				</section>
 			{/if}
 
-			{#if pedidoActual && pedidoActual.estado !== 'entregado'}
+			{#if pedidoActual && pedidoActual.estado_codigo !== 'entregado'}
 				<section class="bg-white rounded-2xl shadow-sm overflow-hidden">
 					<div class="p-5 flex flex-col gap-4">
 						<div class="flex items-center justify-between">
@@ -407,7 +387,7 @@
 								<p class="text-xs text-on-surface-variant">Pedido actual</p>
 								<h2 class="text-lg font-bold text-on-surface">#{pedidoActual.id_pedido}</h2>
 							</div>
-							<EstadoBadge codigo={pedidoActual.estado} />
+							<EstadoBadge codigo={pedidoActual.estado_codigo} />
 						</div>
 
 						<div class="flex flex-col gap-2 text-sm">
@@ -415,7 +395,6 @@
 								<span class="material-symbols-outlined text-[18px] text-primary-container mt-0.5">storefront</span>
 								<div>
 									<div class="font-semibold text-on-surface">{pedidoActual.restaurante.nombre}</div>
-									<div class="text-xs text-on-surface-variant">{pedidoActual.restaurante.direccion}</div>
 								</div>
 							</div>
 							<div class="ml-2 border-l-2 border-dashed border-gray-300 h-3"></div>
@@ -423,9 +402,9 @@
 								<span class="material-symbols-outlined text-[18px] text-purple-600 mt-0.5">location_on</span>
 								<div>
 									<div class="font-semibold text-on-surface">{pedidoActual.cliente.nombre}</div>
-									<div class="text-xs text-on-surface-variant">{pedidoActual.cliente.direccion}</div>
-									{#if pedidoActual.cliente.referencia}
-										<div class="text-[11px] text-on-surface-variant/70 italic">{pedidoActual.cliente.referencia}</div>
+									<div class="text-xs text-on-surface-variant">{pedidoActual.direccion.direccion}</div>
+									{#if pedidoActual.direccion.referencia}
+										<div class="text-[11px] text-on-surface-variant/70 italic">{pedidoActual.direccion.referencia}</div>
 									{/if}
 								</div>
 							</div>
@@ -441,9 +420,9 @@
 
 						<div class="bg-surface-container-low rounded-xl p-3 flex flex-col gap-2">
 							<div class="text-xs font-semibold text-on-surface-variant uppercase tracking-wide">
-								{pedidoActual.productos.length} producto{pedidoActual.productos.length !== 1 ? 's' : ''}
+								{pedidoActual.detalle.length} producto{pedidoActual.detalle.length !== 1 ? 's' : ''}
 							</div>
-							{#each pedidoActual.productos as prod}
+							{#each pedidoActual.detalle as prod}
 								<div class="text-sm text-on-surface">{prod.cantidad}x {prod.nombre}</div>
 							{/each}
 							<div class="flex items-center justify-between border-t border-gray-200 pt-2 mt-1">
@@ -452,7 +431,7 @@
 							</div>
 						</div>
 
-						{#if pedidoActual.estado === 'listo_para_retirar'}
+						{#if pedidoActual.estado_codigo === 'listo_para_retirar'}
 							<button
 								type="button"
 								onclick={retirar}
@@ -461,7 +440,7 @@
 								<span class="material-symbols-outlined text-[20px]">two_wheeler</span>
 								Retiré el pedido
 							</button>
-						{:else if pedidoActual.estado === 'en_camino'}
+						{:else if pedidoActual.estado_codigo === 'en_camino'}
 							<button
 								type="button"
 								onclick={entregar}

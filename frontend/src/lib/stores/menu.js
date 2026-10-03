@@ -1,27 +1,12 @@
 import { writable, derived } from 'svelte/store';
-import { browser } from '$app/environment';
-import { PRODUCTOS_POR_RESTAURANTE } from '$lib/mock/productos.js';
+import { api } from '$lib/api.js';
 
-const STORAGE_KEY = 'menu_restaurante';
+export const menu = writable([]);
 
-// Inicial: los productos del restaurante 1
-function cargar() {
-	if (!browser) return PRODUCTOS_POR_RESTAURANTE[1] || [];
-	const raw = localStorage.getItem(STORAGE_KEY);
-	if (!raw) return PRODUCTOS_POR_RESTAURANTE[1] || [];
-	try {
-		return JSON.parse(raw);
-	} catch {
-		return PRODUCTOS_POR_RESTAURANTE[1] || [];
-	}
-}
-
-export const menu = writable(cargar());
-
-if (browser) {
-	menu.subscribe((valor) => {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(valor));
-	});
+export async function cargarMenu() {
+	const datos = await api('/api/restaurante/productos');
+	menu.set(datos);
+	return datos;
 }
 
 // Estadísticas
@@ -31,54 +16,63 @@ export const estadisticas = derived(menu, ($m) => ({
 	agotados: $m.filter((p) => !p.disponible).length
 }));
 
-// Agregar producto nuevo
-export function agregarProducto(prod) {
-	menu.update((lista) => {
-		const nuevoId = Math.max(0, ...lista.map((p) => p.id_producto)) + 1;
-		return [
-			...lista,
-			{
-				id_producto: nuevoId,
-				nombre: prod.nombre,
-				descripcion: prod.descripcion || '',
-				precio: Number(prod.precio),
-				exento_iva: prod.exento_iva,
-				disponible: true,
-				categoria: prod.categoria || 'Populares',
-				imagen:
-					prod.imagen ||
-					'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=300&q=80'
-			}
-		];
+export async function agregarProducto(prod) {
+	await api('/api/restaurante/productos', {
+		metodo: 'POST',
+		cuerpo: {
+			nombre: prod.nombre,
+			descripcion: prod.descripcion || null,
+			precio: Number(prod.precio),
+			exento_iva: prod.exento_iva
+		}
 	});
+	await cargarMenu();
 }
 
-// Editar producto existente
-export function editarProducto(id, cambios) {
-	menu.update((lista) =>
-		lista.map((p) => (p.id_producto === id ? { ...p, ...cambios } : p))
-	);
+function buscar(id) {
+	let actual = null;
+	menu.subscribe((lista) => {
+		actual = lista.find((p) => p.id_producto === id);
+	})();
+	return actual;
 }
 
-// Toggle disponible
-export function toggleDisponible(id) {
-	menu.update((lista) =>
-		lista.map((p) =>
-			p.id_producto === id ? { ...p, disponible: !p.disponible } : p
-		)
-	);
+// El PUT reemplaza el producto completo: siempre se mandan los 5 campos.
+async function actualizarCompleto(id, cambios) {
+	const base = buscar(id);
+	if (!base) return;
+	const datos = { ...base, ...cambios };
+	await api(`/api/restaurante/productos/${id}`, {
+		metodo: 'PUT',
+		cuerpo: {
+			nombre: datos.nombre,
+			descripcion: datos.descripcion ?? null,
+			precio: Number(datos.precio),
+			exento_iva: datos.exento_iva,
+			disponible: datos.disponible
+		}
+	});
+	await cargarMenu();
 }
 
-// Toggle exento_iva
-export function toggleExentoIva(id) {
-	menu.update((lista) =>
-		lista.map((p) =>
-			p.id_producto === id ? { ...p, exento_iva: !p.exento_iva } : p
-		)
-	);
+export async function editarProducto(id, cambios) {
+	await actualizarCompleto(id, cambios);
 }
 
-// Eliminar
-export function eliminarProducto(id) {
-	menu.update((lista) => lista.filter((p) => p.id_producto !== id));
+export async function toggleDisponible(id) {
+	const actual = buscar(id);
+	if (!actual) return;
+	await actualizarCompleto(id, { disponible: !actual.disponible });
+}
+
+export async function toggleExentoIva(id) {
+	const actual = buscar(id);
+	if (!actual) return;
+	await actualizarCompleto(id, { exento_iva: !actual.exento_iva });
+}
+
+// No existe DELETE en el contrato: los productos no se borran, se marcan
+// no disponibles (asi los pedidos pasados que los referencian no se rompen).
+export async function eliminarProducto(id) {
+	await toggleDisponible(id);
 }

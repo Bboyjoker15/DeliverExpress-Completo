@@ -314,6 +314,15 @@ class CoordinadorAdminIn(_Entrada):
     nombre: str = Field(max_length=100)
     telefono: str = Field(max_length=20)
 
+
+class CoordinadorAdminListOut(_Salida):
+    id_coordinador: int
+    id_usuario: int
+    nombre: str
+    email: str
+    telefono: str
+    activo: bool
+
 class UsuarioActivoIn(_Entrada):
     activo: bool
 
@@ -321,6 +330,22 @@ class UsuarioActivoIn(_Entrada):
 # 7. CLIENTE 
 # =====================================================================
 TipoCalCliente = Literal["cliente_a_repartidor", "cliente_a_restaurante"]
+
+class PerfilClienteOut(_Salida):
+    nombre: str
+    email: str
+    telefono: str
+    cedula_rif: str | None
+    calificacion_promedio: float
+    en_revision: bool
+
+
+class ResenaOut(_Salida):
+    id: int
+    cliente_nombre: str
+    puntaje: int
+    comentario: str | None
+    fecha: datetime
 
 class DireccionOut(_Salida):
     id_direccion: int
@@ -482,7 +507,7 @@ class VwDesempenoRestaurantesRow(_Salida):
     categoria: str
     total_pedidos: int
     pedidos_cancelados: int
-    prom_min_preparacion: float
+    prom_min_preparacion: float | None
     calificacion_promedio: float
     ventas_productos: float
 

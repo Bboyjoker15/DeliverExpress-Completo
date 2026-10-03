@@ -1,43 +1,57 @@
 <script>
+	import { onMount } from 'svelte';
 	import { sesion } from '$lib/stores/sesion.js';
-	import { ZONAS } from '$lib/mock/zonas.js';
-	import { CATEGORIAS } from '$lib/mock/categorias.js';
-	import { TARIFAS_ENVIO, PARAMETROS_SISTEMA } from '$lib/mock/admin.js';
-	import { COORDINADORES_INICIALES } from '$lib/mock/coordinadores.js';
-	import { RESTAURANTES } from '$lib/mock/restaurantes.js';
-	import { REPARTIDORES_DISPONIBLES_DEMO } from '$lib/mock/repartidores.js';
 	import {
 		tasasBcv,
 		tieneTasaHoy,
-		agregarTasa,
-		eliminarTasa
+		cargarTasas,
+		agregarTasa
 	} from '$lib/stores/tasas-bcv.js';
 	import { usd } from '$lib/formato.js';
 	import { mostrarToast } from '$lib/toast.js';
+	import { api } from '$lib/api.js';
 	import MapaSelector from '$lib/componentes/MapaSelector.svelte';
 
 	// ───── Pestaña activa ─────
 	let pestana = $state('zonas');
 
-	// ───── Datos locales ─────
-	let zonas = $state([...ZONAS]);
-	let categorias = $state([...CATEGORIAS]);
-	let tarifas = $state([...TARIFAS_ENVIO]);
-	let parametros = $state([...PARAMETROS_SISTEMA]);
-	let coordinadores = $state([...COORDINADORES_INICIALES]);
-	let restaurantes = $state([...RESTAURANTES]);
-	let repartidores = $state([...REPARTIDORES_DISPONIBLES_DEMO]);
+	// ───── Datos desde la API ─────
+	let zonas = $state([]);
+	let categorias = $state([]);
+	let tarifas = $state([]);
+	let parametros = $state([]);
+	let coordinadores = $state([]);
+	let restaurantes = $state([]);
+	let repartidores = $state([]);
+	let cargando = $state(true);
+
+	async function recargarTodo() {
+		cargando = true;
+		try {
+			[zonas, categorias, tarifas, parametros, coordinadores, restaurantes, repartidores] =
+				await Promise.all([
+					api('/api/admin/zonas'),
+					api('/api/admin/categorias'),
+					api('/api/admin/tarifas'),
+					api('/api/admin/parametros'),
+					api('/api/admin/coordinadores'),
+					api('/api/admin/restaurantes'),
+					api('/api/admin/repartidores')
+				]);
+			await cargarTasas();
+		} catch (err) {
+			mostrarToast('error', err.message);
+		} finally {
+			cargando = false;
+		}
+	}
+
+	onMount(recargarTodo);
 
 	// ───── Modales básicos ─────
 	let modalAbierto = $state(false);
 	let modalTipo = $state('zona');
 	let formNuevo = $state({});
-
-	// ───── Confirmar eliminar ─────
-	let confirmarAbierto = $state(false);
-	let confirmarTipo = $state('zona');
-	let confirmarId = $state(null);
-	let confirmarNombre = $state('');
 
 	// ───── Tasa BCV ─────
 	let formTasa = $state({
@@ -104,52 +118,41 @@
 			formNuevo = tipo === 'zona'
 				? { nombre: '', latitud: '', longitud: '' }
 				: tipo === 'categoria'
-				? { nombre: '', emoji: '' }
+				? { nombre: '' }
 				: {};
 		}
 		modalAbierto = true;
 	}
 
-	function guardarNuevo() {
+	async function guardarNuevo() {
 		if (!formNuevo.nombre?.trim()) {
 			mostrarToast('error', 'El nombre es obligatorio');
 			return;
 		}
 
-		if (modalTipo === 'zona') {
-			zonas = [...zonas, {
-				id_zona: Math.max(0, ...zonas.map((z) => z.id_zona)) + 1,
-				nombre: formNuevo.nombre,
-				latitud_centro: parseFloat(formNuevo.latitud) || 0,
-				longitud_centro: parseFloat(formNuevo.longitud) || 0
-			}];
-		} else if (modalTipo === 'categoria') {
-			categorias = [...categorias, {
-				id_categoria: Math.max(0, ...categorias.map((c) => c.id_categoria)) + 1,
-				nombre: formNuevo.nombre,
-				emoji: formNuevo.emoji || '🍽️'
-			}];
+		try {
+			if (modalTipo === 'zona') {
+				await api('/api/admin/zonas', {
+					metodo: 'POST',
+					cuerpo: {
+						nombre: formNuevo.nombre.trim(),
+						descripcion: null,
+						latitud_centro: parseFloat(formNuevo.latitud) || 0,
+						longitud_centro: parseFloat(formNuevo.longitud) || 0
+					}
+				});
+			} else if (modalTipo === 'categoria') {
+				await api('/api/admin/categorias', {
+					metodo: 'POST',
+					cuerpo: { nombre: formNuevo.nombre.trim() }
+				});
+			}
+			mostrarToast('exito', 'Guardado correctamente');
+			modalAbierto = false;
+			await recargarTodo();
+		} catch (err) {
+			mostrarToast('error', err.message);
 		}
-		mostrarToast('exito', 'Guardado correctamente');
-		modalAbierto = false;
-	}
-
-	function pedirConfirmacion(tipo, id, nombre) {
-		confirmarTipo = tipo;
-		confirmarId = id;
-		confirmarNombre = nombre;
-		confirmarAbierto = true;
-	}
-
-	function confirmarEliminar() {
-		if (confirmarTipo === 'zona') zonas = zonas.filter((z) => z.id_zona !== confirmarId);
-		else if (confirmarTipo === 'categoria') categorias = categorias.filter((c) => c.id_categoria !== confirmarId);
-		else if (confirmarTipo === 'coordinador') coordinadores = coordinadores.filter((c) => c.id_coordinador !== confirmarId);
-		else if (confirmarTipo === 'repartidor') repartidores = repartidores.filter((r) => r.id_repartidor !== confirmarId);
-		else if (confirmarTipo === 'restaurante') restaurantes = restaurantes.filter((r) => r.id_restaurante !== confirmarId);
-
-		mostrarToast('exito', 'Eliminado');
-		confirmarAbierto = false;
 	}
 
 	// ══════════════════════════════════════════════
@@ -161,7 +164,7 @@
 		modalTarifa = true;
 	}
 
-	function guardarTarifa() {
+	async function guardarTarifa() {
 		const desde = parseFloat(formTarifa.km_desde);
 		const hasta = parseFloat(formTarifa.km_hasta);
 		const precio = parseFloat(formTarifa.precio);
@@ -179,25 +182,45 @@
 			return;
 		}
 
-		tarifas = tarifas.map((t) =>
-			t.id_tarifa === tarifaEditando.id_tarifa
-				? { ...t, km_desde: desde, km_hasta: hasta, precio }
-				: t
-		);
-		mostrarToast('exito', 'Tarifa actualizada');
-		modalTarifa = false;
+		try {
+			await api(`/api/admin/tarifas/${tarifaEditando.id_tarifa}`, {
+				metodo: 'PUT',
+				cuerpo: { km_desde: desde, km_hasta: hasta, precio }
+			});
+			mostrarToast('exito', 'Tarifa actualizada');
+			modalTarifa = false;
+			await recargarTodo();
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
+	}
+
+	// ══════════════════════════════════════════════
+	// PARÁMETROS (los valores son fracciones: 0.16 = 16%)
+	// ══════════════════════════════════════════════
+	async function guardarParametro(clave, valor) {
+		try {
+			await api(`/api/admin/parametros/${clave}`, {
+				metodo: 'PUT',
+				cuerpo: { valor: String(valor) }
+			});
+			mostrarToast('exito', `Parámetro ${clave} actualizado`);
+			await recargarTodo();
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 
 	// ══════════════════════════════════════════════
 	// TASA BCV
 	// ══════════════════════════════════════════════
-	function guardarTasa() {
+	async function guardarTasa() {
 		if (!formTasa.tasa_usd || Number(formTasa.tasa_usd) <= 0) {
 			mostrarToast('error', 'Ingresa una tasa válida');
 			return;
 		}
 		try {
-			agregarTasa({ fecha: formTasa.fecha, tasa_usd: formTasa.tasa_usd });
+			await agregarTasa({ fecha: formTasa.fecha, tasa_usd: formTasa.tasa_usd });
 			mostrarToast('exito', 'Tasa registrada');
 			formTasa = { fecha: new Date().toISOString().split('T')[0], tasa_usd: '' };
 		} catch (err) {
@@ -205,38 +228,49 @@
 		}
 	}
 
-	function borrarTasa(fecha) {
-		eliminarTasa(fecha);
-		mostrarToast('info', 'Tasa eliminada');
-	}
-
 	// ══════════════════════════════════════════════
 	// FACTURACIÓN
 	// ══════════════════════════════════════════════
-	function generarComisiones() {
+	async function generarComisiones() {
 		if (!periodoFacturacion.desde || !periodoFacturacion.hasta) {
 			mostrarToast('error', 'Elige el periodo');
 			return;
 		}
-		resultadoFacturacion = {
-			tipo: 'facturas de comisión',
-			creadas: 8,
-			periodo: `${periodoFacturacion.desde} a ${periodoFacturacion.hasta}`
-		};
-		mostrarToast('exito', '8 facturas de comisión generadas');
+		try {
+			const r = await api('/api/admin/facturacion/comisiones', {
+				metodo: 'POST',
+				cuerpo: { desde: periodoFacturacion.desde, hasta: periodoFacturacion.hasta }
+			});
+			resultadoFacturacion = {
+				tipo: 'facturas de comisión',
+				creadas: r.creadas,
+				periodo: `${periodoFacturacion.desde} a ${periodoFacturacion.hasta}`
+			};
+			mostrarToast('exito', `${r.creadas} facturas de comisión generadas`);
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 
-	function generarLiquidaciones() {
+	async function generarLiquidaciones() {
 		if (!periodoFacturacion.desde || !periodoFacturacion.hasta) {
 			mostrarToast('error', 'Elige el periodo');
 			return;
 		}
-		resultadoFacturacion = {
-			tipo: 'liquidaciones',
-			creadas: 5,
-			periodo: `${periodoFacturacion.desde} a ${periodoFacturacion.hasta}`
-		};
-		mostrarToast('exito', '5 liquidaciones generadas');
+		try {
+			const r = await api('/api/admin/facturacion/liquidaciones', {
+				metodo: 'POST',
+				cuerpo: { desde: periodoFacturacion.desde, hasta: periodoFacturacion.hasta }
+			});
+			resultadoFacturacion = {
+				tipo: 'liquidaciones',
+				creadas: r.creadas,
+				periodo: `${periodoFacturacion.desde} a ${periodoFacturacion.hasta}`
+			};
+			mostrarToast('exito', `${r.creadas} liquidaciones generadas`);
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 
 	// ══════════════════════════════════════════════
@@ -270,7 +304,7 @@
 		}
 	}
 
-	function guardarRestaurante() {
+	async function guardarRestaurante() {
 		if (!formRestaurante.email || !formRestaurante.password) {
 			mostrarToast('error', 'Email y contraseña son obligatorios');
 			return;
@@ -292,40 +326,56 @@
 			return;
 		}
 
-		// Cuando el backend esté listo: POST /api/admin/restaurantes {formRestaurante}
-		const categoria = categorias.find((c) => c.id_categoria === formRestaurante.id_categoria);
-		restaurantes = [
-			...restaurantes,
-			{
-				id_restaurante: Math.max(0, ...restaurantes.map((r) => r.id_restaurante)) + 1,
-				nombre: formRestaurante.nombre,
-				categoria: categoria?.nombre || 'Sin categoría',
-				id_categoria: formRestaurante.id_categoria,
-				direccion: formRestaurante.direccion,
-				telefono: formRestaurante.telefono,
-				latitud: formRestaurante.latitud,
-				longitud: formRestaurante.longitud,
-				tiempo_prep_min: formRestaurante.tiempo_prep_min,
-				rif: formRestaurante.rif,
-				razon_social: formRestaurante.razon_social,
-				direccion_fiscal: formRestaurante.direccion_fiscal,
-				zonas: formRestaurante.zonas,
-				activo: true,
-				abierto_ahora: true,
-				calificacion_promedio: 5.0,
-				costo_envio: 0,
-				distancia_km: 0,
-				imagen: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80'
-			}
-		];
-		mostrarToast('exito', 'Restaurante creado con éxito');
-		modalRestaurante = false;
+		try {
+			await api('/api/admin/restaurantes', {
+				metodo: 'POST',
+				cuerpo: {
+					email: formRestaurante.email,
+					password: formRestaurante.password,
+					nombre: formRestaurante.nombre.trim(),
+					id_categoria: Number(formRestaurante.id_categoria),
+					direccion: formRestaurante.direccion,
+					telefono: formRestaurante.telefono,
+					latitud: Number(formRestaurante.latitud),
+					longitud: Number(formRestaurante.longitud),
+					tiempo_prep_min: Number(formRestaurante.tiempo_prep_min),
+					rif: formRestaurante.rif.trim(),
+					razon_social: formRestaurante.razon_social.trim(),
+					direccion_fiscal: formRestaurante.direccion_fiscal,
+					zonas: formRestaurante.zonas
+				}
+			});
+			mostrarToast('exito', 'Restaurante creado con éxito');
+			modalRestaurante = false;
+			await recargarTodo();
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 
-	function toggleActivoRestaurante(id) {
-		restaurantes = restaurantes.map((r) =>
-			r.id_restaurante === id ? { ...r, activo: r.activo === false ? true : false } : r
-		);
+	async function toggleActivoRestaurante(r) {
+		try {
+			await api(`/api/admin/restaurantes/${r.id_restaurante}`, {
+				metodo: 'PUT',
+				cuerpo: {
+					id_categoria: r.id_categoria,
+					nombre: r.nombre,
+					direccion: r.direccion,
+					telefono: r.telefono,
+					latitud: r.latitud,
+					longitud: r.longitud,
+					tiempo_prep_min: r.tiempo_prep_min,
+					rif: r.rif,
+					razon_social: r.razon_social,
+					direccion_fiscal: r.direccion_fiscal,
+					activo: !(r.activo !== false),
+					zonas: r.zonas
+				}
+			});
+			await recargarTodo();
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 
 	// ══════════════════════════════════════════════
@@ -344,7 +394,7 @@
 		modalRepartidor = true;
 	}
 
-	function guardarRepartidor() {
+	async function guardarRepartidor() {
 		if (!formRepartidor.email || !formRepartidor.password) {
 			mostrarToast('error', 'Email y contraseña son obligatorios');
 			return;
@@ -362,39 +412,44 @@
 			return;
 		}
 
-		// Cuando el backend esté listo: POST /api/admin/repartidores {formRepartidor}
-		const zona = zonas.find((z) => z.id_zona === formRepartidor.id_zona);
-		repartidores = [
-			...repartidores,
-			{
-				id_repartidor: Math.max(0, ...repartidores.map((r) => r.id_repartidor)) + 1,
-				nombre: formRepartidor.nombre,
-				iniciales: formRepartidor.nombre
-					.split(' ')
-					.map((n) => n[0])
-					.join('')
-					.slice(0, 2)
-					.toUpperCase(),
-				email: formRepartidor.email,
-				telefono: formRepartidor.telefono,
-				cedula: formRepartidor.cedula,
-				vehiculo: formRepartidor.tipo_vehiculo,
-				zona: zona?.nombre || 'Zona Centro',
-				disponibilidad: 'libre',
-				calificacion_promedio: 5.0,
-				latitud_actual: 8.29,
-				longitud_actual: -62.71,
-				activo: true
-			}
-		];
-		mostrarToast('exito', 'Repartidor creado con éxito');
-		modalRepartidor = false;
+		try {
+			await api('/api/admin/repartidores', {
+				metodo: 'POST',
+				cuerpo: {
+					email: formRepartidor.email,
+					password: formRepartidor.password,
+					nombre: formRepartidor.nombre.trim(),
+					telefono: formRepartidor.telefono,
+					cedula: formRepartidor.cedula.trim(),
+					tipo_vehiculo: formRepartidor.tipo_vehiculo,
+					id_zona: Number(formRepartidor.id_zona)
+				}
+			});
+			mostrarToast('exito', 'Repartidor creado con éxito');
+			modalRepartidor = false;
+			await recargarTodo();
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 
-	function toggleActivoRepartidor(id) {
-		repartidores = repartidores.map((r) =>
-			r.id_repartidor === id ? { ...r, activo: r.activo === false ? true : false } : r
-		);
+	async function toggleActivoRepartidor(r) {
+		try {
+			await api(`/api/admin/repartidores/${r.id_repartidor}`, {
+				metodo: 'PUT',
+				cuerpo: {
+					nombre: r.nombre,
+					telefono: r.telefono,
+					cedula: r.cedula,
+					tipo_vehiculo: r.tipo_vehiculo,
+					id_zona: r.id_zona,
+					activo: !(r.activo !== false)
+				}
+			});
+			await recargarTodo();
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 
 	// ══════════════════════════════════════════════
@@ -405,7 +460,7 @@
 		modalCoordinador = true;
 	}
 
-	function guardarCoordinador() {
+	async function guardarCoordinador() {
 		if (!formCoordinador.email || !formCoordinador.password) {
 			mostrarToast('error', 'Email y contraseña son obligatorios');
 			return;
@@ -419,24 +474,34 @@
 			return;
 		}
 
-		coordinadores = [
-			...coordinadores,
-			{
-				id_coordinador: Math.max(0, ...coordinadores.map((c) => c.id_coordinador)) + 1,
-				nombre: formCoordinador.nombre,
-				email: formCoordinador.email,
-				telefono: formCoordinador.telefono,
-				activo: true
-			}
-		];
-		mostrarToast('exito', 'Coordinador creado con éxito');
-		modalCoordinador = false;
+		try {
+			await api('/api/admin/coordinadores', {
+				metodo: 'POST',
+				cuerpo: {
+					email: formCoordinador.email,
+					password: formCoordinador.password,
+					nombre: formCoordinador.nombre.trim(),
+					telefono: formCoordinador.telefono
+				}
+			});
+			mostrarToast('exito', 'Coordinador creado con éxito');
+			modalCoordinador = false;
+			await recargarTodo();
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 
-	function toggleActivoCoordinador(id) {
-		coordinadores = coordinadores.map((c) =>
-			c.id_coordinador === id ? { ...c, activo: !c.activo } : c
-		);
+	async function toggleActivoCoordinador(c) {
+		try {
+			await api(`/api/admin/usuarios/${c.id_usuario}/activo`, {
+				metodo: 'PUT',
+				cuerpo: { activo: !c.activo }
+			});
+			await recargarTodo();
+		} catch (err) {
+			mostrarToast('error', err.message);
+		}
 	}
 </script>
 
@@ -544,37 +609,27 @@
 					<div class="overflow-x-auto max-h-[500px]">
 						<table class="w-full text-sm">
 							<thead class="sticky top-0 bg-white">
-								<tr class="text-left text-xs text-on-surface-variant uppercase tracking-wide border-b border-gray-200">
-									<th class="py-2 px-3">Fecha</th>
-									<th class="py-2 px-3 text-right">Tasa USD</th>
-									<th class="py-2 px-3 w-20 text-right">Acciones</th>
+							<tr class="text-left text-xs text-on-surface-variant uppercase tracking-wide border-b border-gray-200">
+								<th class="py-2 px-3">Fecha</th>
+								<th class="py-2 px-3 text-right">Tasa USD</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each $tasasBcv.slice(0, 60) as t, i (t.fecha)}
+								<tr class="border-b border-gray-100 {i % 2 === 1 ? 'bg-surface-container-low/50' : ''}">
+									<td class="py-2.5 px-3 text-on-surface">
+										{String(t.fecha).slice(0, 10)}
+										{#if String(t.fecha).startsWith(new Date().toISOString().split('T')[0])}
+											<span class="ml-2 bg-green-100 text-green-700 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">
+												Hoy
+											</span>
+										{/if}
+									</td>
+									<td class="py-2.5 px-3 text-right font-bold text-on-surface">
+										Bs. {Number(t.tasa_usd).toFixed(2)}
+									</td>
 								</tr>
-							</thead>
-							<tbody>
-								{#each $tasasBcv.slice(0, 60) as t, i (t.fecha)}
-									<tr class="border-b border-gray-100 {i % 2 === 1 ? 'bg-surface-container-low/50' : ''}">
-										<td class="py-2.5 px-3 text-on-surface">
-											{t.fecha}
-											{#if t.fecha === new Date().toISOString().split('T')[0]}
-												<span class="ml-2 bg-green-100 text-green-700 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">
-													Hoy
-												</span>
-											{/if}
-										</td>
-										<td class="py-2.5 px-3 text-right font-bold text-on-surface">
-											Bs. {t.tasa_usd.toFixed(2)}
-										</td>
-										<td class="py-2.5 px-3 text-right">
-											<button
-												onclick={() => borrarTasa(t.fecha)}
-												class="w-8 h-8 rounded-lg hover:bg-red-50 text-red-500 inline-flex items-center justify-center"
-												title="Eliminar"
-											>
-												<span class="material-symbols-outlined text-[18px]">delete</span>
-											</button>
-										</td>
-									</tr>
-								{/each}
+							{/each}
 							</tbody>
 						</table>
 					</div>
@@ -685,7 +740,6 @@
 								<th class="py-2 px-3">Categoría</th>
 								<th class="py-2 px-3">RIF</th>
 								<th class="py-2 px-3 text-center w-24">Activo</th>
-								<th class="py-2 px-3 w-24 text-right">Acciones</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -693,13 +747,13 @@
 								<tr class="border-b border-gray-100 {i % 2 === 1 ? 'bg-surface-container-low/50' : ''}">
 									<td class="py-3 px-3 text-on-surface-variant">{r.id_restaurante}</td>
 									<td class="py-3 px-3 font-semibold text-on-surface">{r.nombre}</td>
-									<td class="py-3 px-3 text-on-surface-variant">{r.categoria}</td>
+									<td class="py-3 px-3 text-on-surface-variant">{categorias.find((c) => c.id_categoria === r.id_categoria)?.nombre || '—'}</td>
 									<td class="py-3 px-3 font-mono text-xs text-on-surface-variant">
 										{r.rif || 'J-XXXXXXXX-X'}
 									</td>
 									<td class="py-3 px-3 text-center">
 										<button
-											onclick={() => toggleActivoRestaurante(r.id_restaurante)}
+											onclick={() => toggleActivoRestaurante(r)}
 											class="w-10 h-5.5 rounded-full relative transition-colors
 												{r.activo !== false ? 'bg-green-500' : 'bg-gray-300'}"
 										>
@@ -707,15 +761,6 @@
 												class="absolute top-0.5 left-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform
 													{r.activo !== false ? 'translate-x-5' : 'translate-x-0'}"
 											></div>
-										</button>
-									</td>
-									<td class="py-3 px-3 text-right">
-										<button
-											onclick={() => pedirConfirmacion('restaurante', r.id_restaurante, r.nombre)}
-											class="w-8 h-8 rounded-lg hover:bg-red-50 text-red-500 inline-flex items-center justify-center"
-											title="Eliminar"
-										>
-											<span class="material-symbols-outlined text-[18px]">delete</span>
 										</button>
 									</td>
 								</tr>
@@ -761,7 +806,6 @@
 								<th class="py-2 px-3">Vehículo</th>
 								<th class="py-2 px-3">Zona</th>
 								<th class="py-2 px-3 text-center w-24">Activo</th>
-								<th class="py-2 px-3 w-24 text-right">Acciones</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -772,11 +816,11 @@
 									<td class="py-3 px-3 font-mono text-xs text-on-surface-variant">
 										{r.cedula || 'V-XXXXXXXX'}
 									</td>
-									<td class="py-3 px-3 text-on-surface-variant capitalize">{r.vehiculo}</td>
-									<td class="py-3 px-3 text-on-surface-variant">{r.zona}</td>
+									<td class="py-3 px-3 text-on-surface-variant capitalize">{r.tipo_vehiculo}</td>
+									<td class="py-3 px-3 text-on-surface-variant">{zonas.find((z) => z.id_zona === r.id_zona)?.nombre || '—'}</td>
 									<td class="py-3 px-3 text-center">
 										<button
-											onclick={() => toggleActivoRepartidor(r.id_repartidor)}
+											onclick={() => toggleActivoRepartidor(r)}
 											class="w-10 h-5.5 rounded-full relative transition-colors
 												{r.activo !== false ? 'bg-green-500' : 'bg-gray-300'}"
 										>
@@ -784,15 +828,6 @@
 												class="absolute top-0.5 left-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform
 													{r.activo !== false ? 'translate-x-5' : 'translate-x-0'}"
 											></div>
-										</button>
-									</td>
-									<td class="py-3 px-3 text-right">
-										<button
-											onclick={() => pedirConfirmacion('repartidor', r.id_repartidor, r.nombre)}
-											class="w-8 h-8 rounded-lg hover:bg-red-50 text-red-500 inline-flex items-center justify-center"
-											title="Eliminar"
-										>
-											<span class="material-symbols-outlined text-[18px]">delete</span>
 										</button>
 									</td>
 								</tr>
@@ -830,7 +865,6 @@
 								<th class="py-2 px-3">Email</th>
 								<th class="py-2 px-3">Teléfono</th>
 								<th class="py-2 px-3 text-center w-24">Activo</th>
-								<th class="py-2 px-3 w-24 text-right">Acciones</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -842,7 +876,7 @@
 									<td class="py-3 px-3 text-on-surface-variant">{c.telefono}</td>
 									<td class="py-3 px-3 text-center">
 										<button
-											onclick={() => toggleActivoCoordinador(c.id_coordinador)}
+											onclick={() => toggleActivoCoordinador(c)}
 											class="w-10 h-5.5 rounded-full relative transition-colors
 												{c.activo ? 'bg-green-500' : 'bg-gray-300'}"
 										>
@@ -850,15 +884,6 @@
 												class="absolute top-0.5 left-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform
 													{c.activo ? 'translate-x-5' : 'translate-x-0'}"
 											></div>
-										</button>
-									</td>
-									<td class="py-3 px-3 text-right">
-										<button
-											onclick={() => pedirConfirmacion('coordinador', c.id_coordinador, c.nombre)}
-											class="w-8 h-8 rounded-lg hover:bg-red-50 text-red-500 inline-flex items-center justify-center"
-											title="Eliminar"
-										>
-											<span class="material-symbols-outlined text-[18px]">delete</span>
 										</button>
 									</td>
 								</tr>
@@ -894,7 +919,6 @@
 								<th class="py-2 px-3 w-16">ID</th>
 								<th class="py-2 px-3">Nombre</th>
 								<th class="py-2 px-3">Coordenadas</th>
-								<th class="py-2 px-3 w-24 text-right">Acciones</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -904,15 +928,6 @@
 									<td class="py-3 px-3 font-semibold text-on-surface">{z.nombre}</td>
 									<td class="py-3 px-3 text-on-surface-variant text-xs">
 										{z.latitud_centro?.toFixed(4)}, {z.longitud_centro?.toFixed(4)}
-									</td>
-									<td class="py-3 px-3 text-right">
-										<button
-											onclick={() => pedirConfirmacion('zona', z.id_zona, z.nombre)}
-											class="w-8 h-8 rounded-lg hover:bg-red-50 text-red-500 inline-flex items-center justify-center"
-											title="Eliminar"
-										>
-											<span class="material-symbols-outlined text-[18px]">delete</span>
-										</button>
 									</td>
 								</tr>
 							{/each}
@@ -946,7 +961,6 @@
 							<tr class="text-left text-xs text-on-surface-variant uppercase tracking-wide border-b border-gray-200">
 								<th class="py-2 px-3 w-16">ID</th>
 								<th class="py-2 px-3">Nombre</th>
-								<th class="py-2 px-3 w-24 text-right">Acciones</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -954,15 +968,6 @@
 								<tr class="border-b border-gray-100 {i % 2 === 1 ? 'bg-surface-container-low/50' : ''}">
 									<td class="py-3 px-3 text-on-surface-variant">{c.id_categoria}</td>
 									<td class="py-3 px-3 font-semibold text-on-surface">{c.nombre}</td>
-									<td class="py-3 px-3 text-right">
-										<button
-											onclick={() => pedirConfirmacion('categoria', c.id_categoria, c.nombre)}
-											class="w-8 h-8 rounded-lg hover:bg-red-50 text-red-500 inline-flex items-center justify-center"
-											title="Eliminar"
-										>
-											<span class="material-symbols-outlined text-[18px]">delete</span>
-										</button>
-									</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -1020,15 +1025,18 @@
 			<section class="bg-white rounded-2xl shadow-sm p-5 flex flex-col gap-4">
 				<div>
 					<h2 class="text-lg font-bold text-on-surface">Parámetros del sistema</h2>
-					<p class="text-xs text-on-surface-variant mt-0.5">Valores configurables del negocio</p>
+					<p class="text-xs text-on-surface-variant mt-0.5">
+						Valores configurables del negocio (tasas y comisiones en fracción: 0.16 = 16%)
+					</p>
 				</div>
 				<div class="overflow-x-auto">
 					<table class="w-full text-sm">
 						<thead>
 							<tr class="text-left text-xs text-on-surface-variant uppercase tracking-wide border-b border-gray-200">
 								<th class="py-2 px-3">Clave</th>
-								<th class="py-2 px-3 w-32">Valor</th>
+								<th class="py-2 px-3 w-40">Valor</th>
 								<th class="py-2 px-3">Descripción</th>
+								<th class="py-2 px-3 w-24"></th>
 							</tr>
 						</thead>
 						<tbody>
@@ -1036,11 +1044,25 @@
 								<tr class="border-b border-gray-100 {i % 2 === 1 ? 'bg-surface-container-low/50' : ''}">
 									<td class="py-3 px-3 font-mono text-xs text-on-surface">{p.clave}</td>
 									<td class="py-3 px-3">
-										<span class="inline-block bg-primary-fixed/40 text-primary-container text-xs font-bold px-2 py-1 rounded">
-											{p.valor}
-										</span>
+										<input
+											type="text"
+											value={p.valor}
+											data-clave={p.clave}
+											class="w-full px-2 py-1 border border-gray-200 rounded-lg text-xs font-bold font-mono focus:outline-none focus:border-primary-container"
+										/>
 									</td>
 									<td class="py-3 px-3 text-on-surface-variant text-xs">{p.descripcion}</td>
+									<td class="py-3 px-3">
+										<button
+											onclick={(e) => {
+												const input = e.currentTarget.closest('tr').querySelector('input[data-clave]');
+												guardarParametro(p.clave, input.value);
+											}}
+											class="text-[11px] font-semibold text-primary-container border border-primary-container/40 rounded-md px-2 py-1 hover:bg-primary-fixed/30"
+										>
+											Guardar
+										</button>
+									</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -1104,19 +1126,6 @@
 								/>
 							</label>
 						</div>
-					{/if}
-
-					{#if modalTipo === 'categoria'}
-						<label class="flex flex-col gap-1">
-							<span class="text-xs font-semibold text-on-surface-variant uppercase tracking-wide">Emoji</span>
-							<input
-								type="text"
-								bind:value={formNuevo.emoji}
-								placeholder="🍕"
-								maxlength="4"
-								class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary-container"
-							/>
-						</label>
 					{/if}
 				</div>
 
@@ -1578,44 +1587,5 @@
 			</div>
 		</div>
 	{/if}
-
-	<!-- ═══════ MODAL CONFIRMAR ELIMINAR ═══════ -->
-	{#if confirmarAbierto}
-		<div
-			class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-			role="presentation"
-			onclick={(e) => e.target === e.currentTarget && (confirmarAbierto = false)}
-		>
-			<div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 flex flex-col gap-4">
-				<div class="flex items-center gap-3">
-					<div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-						<span class="material-symbols-outlined text-red-600">warning</span>
-					</div>
-					<div>
-						<h3 class="text-base font-bold text-on-surface">¿Eliminar?</h3>
-						<p class="text-xs text-on-surface-variant mt-0.5">
-							Esta acción no se puede deshacer.
-						</p>
-					</div>
-				</div>
-				<p class="text-sm text-on-surface">
-					Vas a eliminar: <span class="font-bold">{confirmarNombre}</span>
-				</p>
-				<div class="flex justify-end gap-2">
-					<button
-						onclick={() => (confirmarAbierto = false)}
-						class="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-on-surface-variant hover:bg-surface-container-low"
-					>
-						Cancelar
-					</button>
-					<button
-						onclick={confirmarEliminar}
-						class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold"
-					>
-						Eliminar
-					</button>
-				</div>
-			</div>
-		</div>
-	{/if}
 </div>
+<!-- Sin borrado físico: la API no expone DELETE para catálogos ni usuarios. -->

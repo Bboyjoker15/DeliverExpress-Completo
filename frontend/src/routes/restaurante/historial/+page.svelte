@@ -1,21 +1,12 @@
 <script>
 	import { usd } from '$lib/formato.js';
 	import EstadoBadge from '$lib/componentes/EstadoBadge.svelte';
-	import { PEDIDOS } from '$lib/mock/pedidos.js';
+	import { api } from '$lib/api.js';
 
-	// Cuando el backend esté listo: GET /api/restaurante/pedidos?activos=false
-	const ID_RESTAURANTE = 1;
+	let pedidos = $state([]);
+	api('/api/restaurante/pedidos?activos=false').then((d) => (pedidos = d));
 
-	let pedidos = $state([...PEDIDOS]);
-
-	// Solo entregados y cancelados del restaurante
-	let historial = $derived(
-		pedidos.filter(
-			(p) =>
-				p.id_restaurante === ID_RESTAURANTE &&
-				(p.id_estado === 5 || p.id_estado === 6)
-		)
-	);
+	let historial = $derived(pedidos);
 
 	// Filtros
 	let filtroActivo = $state('todos');

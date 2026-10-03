@@ -3,6 +3,7 @@
 	import { mostrarToast } from '$lib/toast.js';
 	import {
 		menu,
+		cargarMenu,
 		estadisticas,
 		agregarProducto,
 		editarProducto,
@@ -10,6 +11,10 @@
 		toggleExentoIva,
 		eliminarProducto
 	} from '$lib/stores/menu.js';
+
+	const IMAGEN_DEFECTO = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80';
+
+	cargarMenu();
 
 	// Modal
 	let modalAbierto = $state(false);
@@ -53,7 +58,7 @@
 		modalAbierto = true;
 	}
 
-	function guardar() {
+	async function guardar() {
 		if (!formulario.nombre.trim()) {
 			mostrarToast('error', 'Escribe el nombre del producto');
 			return;
@@ -63,27 +68,28 @@
 			return;
 		}
 
-		if (modoEdicion && productoEditando) {
-			editarProducto(productoEditando.id_producto, {
-				nombre: formulario.nombre.trim(),
-				descripcion: formulario.descripcion.trim(),
-				precio: Number(formulario.precio),
-				exento_iva: formulario.exento_iva,
-				categoria: formulario.categoria
-			});
-			mostrarToast('exito', 'Producto actualizado');
-		} else {
-			agregarProducto({
-				nombre: formulario.nombre.trim(),
-				descripcion: formulario.descripcion.trim(),
-				precio: Number(formulario.precio),
-				exento_iva: formulario.exento_iva,
-				categoria: formulario.categoria
-			});
-			mostrarToast('exito', 'Producto agregado');
+		try {
+			if (modoEdicion && productoEditando) {
+				await editarProducto(productoEditando.id_producto, {
+					nombre: formulario.nombre.trim(),
+					descripcion: formulario.descripcion.trim(),
+					precio: Number(formulario.precio),
+					exento_iva: formulario.exento_iva
+				});
+				mostrarToast('exito', 'Producto actualizado');
+			} else {
+				await agregarProducto({
+					nombre: formulario.nombre.trim(),
+					descripcion: formulario.descripcion.trim(),
+					precio: Number(formulario.precio),
+					exento_iva: formulario.exento_iva
+				});
+				mostrarToast('exito', 'Producto agregado');
+			}
+			modalAbierto = false;
+		} catch (err) {
+			mostrarToast('error', err.message || 'No se pudo guardar el producto');
 		}
-
-		modalAbierto = false;
 	}
 
 	function pedirEliminar(prod) {
@@ -91,10 +97,14 @@
 		confirmarAbierto = true;
 	}
 
-	function confirmarEliminar() {
+	async function confirmarEliminar() {
 		if (productoAEliminar) {
-			eliminarProducto(productoAEliminar.id_producto);
-			mostrarToast('exito', 'Producto eliminado');
+			try {
+				await eliminarProducto(productoAEliminar.id_producto);
+				mostrarToast('exito', 'Producto marcado como no disponible');
+			} catch (err) {
+				mostrarToast('error', err.message || 'No se pudo actualizar el producto');
+			}
 		}
 		confirmarAbierto = false;
 		productoAEliminar = null;
@@ -180,7 +190,7 @@
 								<tr class="hover:bg-surface-container-low/40 transition-colors">
 									<td class="py-3 px-4 align-middle">
 										<img
-											src={p.imagen}
+											src={IMAGEN_DEFECTO}
 											alt={p.nombre}
 											class="w-14 h-14 object-cover rounded-lg shadow-sm"
 										/>

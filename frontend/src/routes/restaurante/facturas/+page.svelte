@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { usd, bs } from '$lib/formato.js';
-	import { obtenerFacturasComisionMock } from '$lib/mock/restaurantes.js';
+	import { api } from '$lib/api.js';
 
 	let facturas = $state([]);
 	let cargando = $state(true);
@@ -10,43 +10,35 @@
 
 	onMount(async () => {
 		try {
-			facturas = await obtenerFacturasComisionMock();
+			facturas = await api('/api/restaurante/facturas');
 		} finally {
 			cargando = false;
 		}
 	});
 
 	// KPIs
-	let totalPendiente = $derived(
-		facturas
-			.filter((f) => f.estado_pago === 'pendiente' && !f.anulada)
-			.reduce((s, f) => s + f.total_usd, 0)
+	let totalEmitido = $derived(
+		facturas.filter((f) => f.estado === 'emitida').reduce((s, f) => s + f.total, 0)
 	);
-	let totalPagado = $derived(
-		facturas.filter((f) => f.estado_pago === 'pagada').reduce((s, f) => s + f.total_usd, 0)
+	let totalAnulado = $derived(
+		facturas.filter((f) => f.estado === 'anulada').reduce((s, f) => s + f.total, 0)
 	);
 
 	// Filtros
 	let facturasFiltradas = $derived.by(() => {
 		let lista = facturas;
-		if (filtroActivo === 'pendientes') lista = lista.filter((f) => f.estado_pago === 'pendiente');
-		else if (filtroActivo === 'pagadas') lista = lista.filter((f) => f.estado_pago === 'pagada');
-		else if (filtroActivo === 'anuladas') lista = lista.filter((f) => f.anulada);
+		if (filtroActivo === 'emitidas') lista = lista.filter((f) => f.estado === 'emitida');
+		else if (filtroActivo === 'anuladas') lista = lista.filter((f) => f.estado === 'anulada');
 
 		if (busqueda.trim()) {
 			const q = busqueda.trim().toLowerCase();
-			lista = lista.filter(
-				(f) =>
-					f.numero_factura.toLowerCase().includes(q) ||
-					f.periodo.toLowerCase().includes(q)
-			);
+			lista = lista.filter((f) => f.numero_factura.toLowerCase().includes(q));
 		}
 		return lista;
 	});
 
-	let contPendientes = $derived(facturas.filter((f) => f.estado_pago === 'pendiente').length);
-	let contPagadas = $derived(facturas.filter((f) => f.estado_pago === 'pagada').length);
-	let contAnuladas = $derived(facturas.filter((f) => f.anulada).length);
+	let contEmitidas = $derived(facturas.filter((f) => f.estado === 'emitida').length);
+	let contAnuladas = $derived(facturas.filter((f) => f.estado === 'anulada').length);
 
 	function formatearFecha(iso) {
 		if (!iso) return '—';
@@ -58,29 +50,24 @@
 	}
 
 	function colorEstado(estado) {
-		if (estado === 'pagada') return 'bg-green-100 text-green-800';
-		if (estado === 'pendiente') return 'bg-yellow-100 text-yellow-900';
-		if (estado === 'aplicada') return 'bg-blue-100 text-blue-800';
+		if (estado === 'emitida') return 'bg-green-100 text-green-800';
 		if (estado === 'anulada') return 'bg-red-100 text-red-700';
 		return 'bg-gray-200 text-gray-800';
 	}
 
 	function etiquetaEstado(estado) {
-		if (estado === 'pagada') return 'Pagada';
-		if (estado === 'pendiente') return 'Pendiente';
-		if (estado === 'aplicada') return 'Aplicada';
+		if (estado === 'emitida') return 'Emitida';
 		if (estado === 'anulada') return 'Anulada';
 		return estado;
 	}
 
-	function periodoBonito(p) {
-		// "2026-09" → "Septiembre 2026"
-		const [anio, mes] = p.split('-');
+	function periodoBonito(iso) {
 		const meses = [
 			'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
 			'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 		];
-		return `${meses[Number(mes) - 1]} ${anio}`;
+		const d = new Date(iso);
+		return `${meses[d.getMonth()]} ${d.getFullYear()}`;
 	}
 </script>
 
@@ -114,15 +101,15 @@
 				<div class="flex items-center gap-2 bg-yellow-50 px-3 py-2 rounded-xl">
 					<span class="material-symbols-outlined text-yellow-600 text-[20px]">schedule</span>
 					<div>
-						<div class="text-[10px] text-yellow-800 uppercase tracking-wider font-semibold">Por pagar</div>
-						<div class="text-sm font-bold text-yellow-900">{usd(totalPendiente)}</div>
+						<div class="text-[10px] text-yellow-800 uppercase tracking-wider font-semibold">Emitido</div>
+						<div class="text-sm font-bold text-yellow-900">{usd(totalEmitido)}</div>
 					</div>
 				</div>
 				<div class="flex items-center gap-2 bg-green-50 px-3 py-2 rounded-xl">
 					<span class="material-symbols-outlined text-green-600 text-[20px]">check_circle</span>
 					<div>
-						<div class="text-[10px] text-green-800 uppercase tracking-wider font-semibold">Pagado</div>
-						<div class="text-sm font-bold text-green-900">{usd(totalPagado)}</div>
+						<div class="text-[10px] text-green-800 uppercase tracking-wider font-semibold">Anulado</div>
+						<div class="text-sm font-bold text-green-900">{usd(totalAnulado)}</div>
 					</div>
 				</div>
 			</div>
@@ -145,31 +132,17 @@
 					</span>
 				</button>
 				<button
-					onclick={() => (filtroActivo = 'pendientes')}
+					onclick={() => (filtroActivo = 'emitidas')}
 					class="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-1.5
-						{filtroActivo === 'pendientes'
-							? 'bg-primary-container text-white shadow-sm'
-							: 'bg-surface-container-low text-on-surface hover:bg-surface-container'}"
-				>
-					<span class="w-2 h-2 rounded-full bg-yellow-500"></span>
-					Pendientes
-					<span class="text-[11px] px-1.5 rounded-full
-						{filtroActivo === 'pendientes' ? 'bg-white/25 text-white' : 'bg-white text-on-surface-variant'}">
-						{contPendientes}
-					</span>
-				</button>
-				<button
-					onclick={() => (filtroActivo = 'pagadas')}
-					class="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-1.5
-						{filtroActivo === 'pagadas'
+						{filtroActivo === 'emitidas'
 							? 'bg-primary-container text-white shadow-sm'
 							: 'bg-surface-container-low text-on-surface hover:bg-surface-container'}"
 				>
 					<span class="w-2 h-2 rounded-full bg-green-500"></span>
-					Pagadas
+					Emitidas
 					<span class="text-[11px] px-1.5 rounded-full
-						{filtroActivo === 'pagadas' ? 'bg-white/25 text-white' : 'bg-white text-on-surface-variant'}">
-						{contPagadas}
+						{filtroActivo === 'emitidas' ? 'bg-white/25 text-white' : 'bg-white text-on-surface-variant'}">
+						{contEmitidas}
 					</span>
 				</button>
 				{#if contAnuladas > 0}
@@ -220,13 +193,13 @@
 		{:else}
 			<div class="flex flex-col gap-3">
 				{#each facturasFiltradas as f (f.id_factura)}
-					<article class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex flex-col gap-3 {f.anulada ? 'opacity-70' : ''}">
+					<article class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex flex-col gap-3 {f.estado === 'anulada' ? 'opacity-70' : ''}">
 						<!-- Header -->
 						<div class="flex flex-wrap items-center justify-between gap-3">
 							<div class="flex items-center gap-2">
 								<span class="font-mono text-sm font-bold text-on-surface">#{f.numero_factura}</span>
-								<span class="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase {colorEstado(f.estado_pago)}">
-									{etiquetaEstado(f.estado_pago)}
+								<span class="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase {colorEstado(f.estado)}">
+									{etiquetaEstado(f.estado)}
 								</span>
 								{#if f.tipo === 'nota_credito'}
 									<span class="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-orange-100 text-orange-800">
@@ -236,52 +209,32 @@
 							</div>
 							<span class="text-xs text-on-surface-variant flex items-center gap-1">
 								<span class="material-symbols-outlined text-[14px]">schedule</span>
-								{formatearFecha(f.fecha)}
+								{formatearFecha(f.fecha_emision)}
 							</span>
 						</div>
 
 						<!-- Grid de datos -->
-						<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 py-3 border-y border-gray-100">
+						<div class="grid grid-cols-2 sm:grid-cols-3 gap-3 py-3 border-y border-gray-100">
 							<div>
 								<p class="text-[10px] text-on-surface-variant uppercase tracking-wider mb-0.5">Periodo</p>
-								<p class="text-sm font-semibold text-on-surface">{periodoBonito(f.periodo)}</p>
+								<p class="text-sm font-semibold text-on-surface">{periodoBonito(f.fecha_emision)}</p>
 							</div>
 							<div>
-								<p class="text-[10px] text-on-surface-variant uppercase tracking-wider mb-0.5">Base imp.</p>
-								<p class="text-sm font-semibold text-on-surface">{usd(f.base_imponible)}</p>
-							</div>
-							<div>
-								<p class="text-[10px] text-on-surface-variant uppercase tracking-wider mb-0.5">IVA 16%</p>
-								<p class="text-sm font-semibold text-on-surface">{usd(f.iva_16)}</p>
+								<p class="text-[10px] text-on-surface-variant uppercase tracking-wider mb-0.5">Moneda</p>
+								<p class="text-sm font-semibold text-on-surface">{f.moneda}</p>
 							</div>
 							<div>
 								<p class="text-[10px] text-on-surface-variant uppercase tracking-wider mb-0.5">Total</p>
-								<p class="text-base font-bold {f.total_usd < 0 ? 'text-red-600' : 'text-primary-container'}">
-									{usd(f.total_usd)}
+								<p class="text-base font-bold {f.total < 0 ? 'text-red-600' : 'text-primary-container'}">
+									{usd(f.total)}
 								</p>
-								<p class="text-[10px] text-on-surface-variant mt-0.5">{bs(f.total_bs)}</p>
+								<p class="text-[10px] text-on-surface-variant mt-0.5">{bs(f.total_ves)}</p>
 							</div>
 						</div>
 
 						<!-- Footer -->
 						<div class="flex flex-wrap items-center justify-between gap-2">
-							{#if f.estado_pago === 'pagada' && f.fecha_pago}
-								<span class="text-[11px] text-green-700 flex items-center gap-1">
-									<span class="material-symbols-outlined text-[14px]">check_circle</span>
-									Pagada el {formatearFecha(f.fecha_pago)}
-								</span>
-							{:else if f.estado_pago === 'pendiente'}
-								<span class="text-[11px] text-yellow-700 flex items-center gap-1">
-									<span class="material-symbols-outlined text-[14px]">schedule</span>
-									Pendiente de pago
-								</span>
-							{:else if f.motivo}
-								<span class="text-[11px] text-on-surface-variant italic flex-1 min-w-0 truncate">
-									{f.motivo}
-								</span>
-							{:else}
-								<span></span>
-							{/if}
+							<span></span>
 
 							<a
 								href="/factura/{f.id_factura}"

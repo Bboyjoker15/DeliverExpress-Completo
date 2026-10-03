@@ -3,10 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import Factura from '$lib/componentes/Factura.svelte';
-	import { obtenerFacturaMock } from '$lib/mock/facturas.js';
-
-	// Cuando el backend esté listo:
-	// import { api } from '$lib/api.js';
+	import { api } from '$lib/api.js';
 
 	let factura = $state(null);
 	let cargando = $state(true);
@@ -14,12 +11,53 @@
 
 	let id = $derived(page.params.id);
 
+	// La API devuelve los campos planos (FacturaOut); Factura.svelte espera
+	// emisor/receptor/lineas anidados, asi que se adapta aqui.
+	function adaptar(f) {
+		return {
+			numero_factura: f.numero_factura,
+			numero_control: f.numero_control,
+			fecha: f.fecha_emision,
+			tipo: f.tipo,
+			anulada: f.estado === 'anulada',
+			motivo_anulacion: f.observaciones,
+			emisor: {
+				razon_social: f.razon_social_emisor,
+				rif: f.rif_emisor,
+				direccion_fiscal: f.direccion_fiscal_emisor,
+				telefono: ''
+			},
+			receptor: {
+				razon_social: f.razon_social_receptor,
+				rif: f.rif_receptor || 'N/A',
+				direccion_fiscal: f.direccion_fiscal_receptor || ''
+			},
+			lineas: f.detalle.map((d) => ({
+				descripcion: d.descripcion,
+				cantidad: d.cantidad,
+				precio_unitario: d.precio_unitario,
+				alicuota: d.alicuota_iva,
+				base_imponible: d.base_item,
+				iva: d.iva_item,
+				total: d.subtotal_item
+			})),
+			tasa_bcv: f.tasa_bcv,
+			subtotal: f.base_imponible_16,
+			iva_16: f.iva_16,
+			exento: f.base_exenta,
+			no_sujeto: f.monto_no_sujeto,
+			igtf: f.igtf,
+			total_usd: f.total,
+			total_bs: f.total_ves
+		};
+	}
+
 	async function cargar() {
 		cargando = true;
 		error = null;
 		try {
-			// MOCK: reemplazar por: factura = await api(`/facturas/${id}`);
-			factura = await obtenerFacturaMock(id);
+			const datos = await api(`/api/facturas/${id}`);
+			factura = adaptar(datos);
 		} catch (err) {
 			error = err.message || 'No se pudo cargar la factura';
 		} finally {

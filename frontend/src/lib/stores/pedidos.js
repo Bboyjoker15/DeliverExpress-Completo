@@ -1,96 +1,52 @@
 import { writable, derived } from 'svelte/store';
-import { PEDIDOS as PEDIDOS_INICIALES } from '$lib/mock/pedidos.js';
+import { api } from '$lib/api.js';
 
-export const pedidos = writable([...PEDIDOS_INICIALES]);
+const ESTADOS_ACTIVOS = ['recibido', 'en_preparacion', 'listo_para_retirar', 'en_camino'];
+
+// Historial resumido del cliente (GET /api/cliente/pedidos): no trae
+// restaurante/repartidor/detalle completos, solo lo necesario para listar.
+export const pedidos = writable([]);
+
+export async function cargarPedidos() {
+	const datos = await api('/api/cliente/pedidos');
+	pedidos.set(datos);
+	return datos;
+}
 
 export function filtrarPorCategoria(categoria) {
 	return derived(pedidos, ($p) => {
 		if (!categoria || categoria === 'todos') return $p;
-		if (categoria === 'activos') return $p.filter((x) => [1, 2, 3, 4].includes(x.id_estado));
-		if (categoria === 'entregados') return $p.filter((x) => x.id_estado === 5);
-		if (categoria === 'cancelados') return $p.filter((x) => x.id_estado === 6);
+		if (categoria === 'activos') return $p.filter((x) => ESTADOS_ACTIVOS.includes(x.estado_codigo));
+		if (categoria === 'entregados') return $p.filter((x) => x.estado_codigo === 'entregado');
+		if (categoria === 'cancelados') return $p.filter((x) => x.estado_codigo === 'cancelado');
 		return $p;
 	});
 }
 
 export const conteos = derived(pedidos, ($p) => ({
 	todos: $p.length,
-	activos: $p.filter((x) => [1, 2, 3, 4].includes(x.id_estado)).length,
-	entregados: $p.filter((x) => x.id_estado === 5).length,
-	cancelados: $p.filter((x) => x.id_estado === 6).length
+	activos: $p.filter((x) => ESTADOS_ACTIVOS.includes(x.estado_codigo)).length,
+	entregados: $p.filter((x) => x.estado_codigo === 'entregado').length,
+	cancelados: $p.filter((x) => x.estado_codigo === 'cancelado').length
 }));
 
-export function agregarPedido(pedido) {
-	pedidos.update((lista) => {
-		if (lista.some((p) => p.id_pedido === pedido.id_pedido)) return lista;
-		return [pedido, ...lista];
-	});
-}
-
+// Detalle completo de un pedido (GET /api/cliente/pedidos/{id}): la lista
+// resumida no alcanza para la pantalla de seguimiento/detalle, asi que se
+// pide aparte y se expone como un store propio que se puede refrescar.
 export function obtenerPedidoPorId(id) {
-	return derived(pedidos, ($p) => $p.find((x) => x.id_pedido === Number(id)));
+	const detalle = writable(null);
+	const cargar = () =>
+		api(`/api/cliente/pedidos/${id}`)
+			.then((d) => detalle.set(d))
+			.catch(() => detalle.set(null));
+	cargar();
+	detalle.refrescar = cargar;
+	return detalle;
 }
 
-// Cambiar estado. Extra permite asignar repartidor al pasar a "en_camino"
-export function actualizarEstadoPedido(id_pedido, nuevo_estado_codigo, nuevo_estado_nombre, nuevo_id_estado, extra = {}) {
-	pedidos.update((lista) =>
-		lista.map((p) => {
-			if (p.id_pedido !== id_pedido) return p;
-
-			const historial = [
-				...p.historial,
-				{
-					id_estado: nuevo_id_estado,
-					estado_codigo: nuevo_estado_codigo,
-					estado_nombre: nuevo_estado_nombre,
-					fecha_hora: new Date().toISOString()
-				}
-			];
-
-			return {
-				...p,
-				id_estado: nuevo_id_estado,
-				estado_codigo: nuevo_estado_codigo,
-				estado_nombre: nuevo_estado_nombre,
-				historial,
-				...(extra.repartidor !== undefined ? { repartidor: extra.repartidor } : {})
-			};
-		})
-	);
-}
-
-// Cancelar pedido (solo si está en estado "recibido")
-export function cancelarPedido(id_pedido, motivo) {
-	pedidos.update((lista) =>
-		lista.map((p) => {
-			if (p.id_pedido !== id_pedido) return p;
-			if (p.id_estado !== 1) return p; // seguridad: solo se puede cancelar en "recibido"
-
-			const fecha = new Date().toISOString();
-			return {
-				...p,
-				id_estado: 6,
-				estado_codigo: 'cancelado',
-				estado_nombre: 'Cancelado',
-				motivo_cancelacion: motivo,
-				historial: [
-					...p.historial,
-					{ id_estado: 6, estado_codigo: 'cancelado', estado_nombre: 'Cancelado', fecha_hora: fecha }
-				]
-			};
-		})
-	);
-}
-
-export function marcarCalificacionHecha(id_pedido, tipo) {
-	pedidos.update((lista) =>
-		lista.map((p) => {
-			if (p.id_pedido !== id_pedido) return p;
-			if (p.calificaciones_hechas?.includes(tipo)) return p;
-			return {
-				...p,
-				calificaciones_hechas: [...(p.calificaciones_hechas || []), tipo]
-			};
-		})
-	);
+export async function calificarPedido(id_pedido, tipo, puntaje, comentario) {
+	return api(`/api/cliente/pedidos/${id_pedido}/calificar`, {
+		metodo: 'POST',
+		cuerpo: { tipo, puntaje, comentario }
+	});
 }
